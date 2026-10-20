@@ -41,6 +41,14 @@ fn kind_label(kind: &str) -> &'static str {
     }
 }
 
+fn report_heading(r: &Summary) -> String {
+    let time = r.time.replace('T', " ");
+    let time = time.trim_end_matches('Z');
+    let time = if r.kind == "unclean_exit" { crate::i18n::format("crash.detected_time", &[("time", time)]) } else { format!("{time} UTC") };
+    let times = if r.count > 1 { format!("  ×{}", r.count) } else { String::new() };
+    format!("{time}  {}{times}", kind_label(&r.kind))
+}
+
 /// The host found these new reports at startup: tell the user about real crashes (recovered
 /// kernel errors stay quiet; they are listed in the window).
 pub fn announce(app: &mut SolveApp, fresh: &[Summary]) {
@@ -50,7 +58,8 @@ pub fn announce(app: &mut SolveApp, fresh: &[Summary]) {
     }
     app.crashes.open = true;
     app.crashes.refresh();
-    app.set_status("SolidCraft closed unexpectedly or hit an internal error last time. A crash report was saved (Help > Crash Reports…).", true);
+    let locale = crate::i18n::Locale::for_language(&app.preferences.language);
+    app.set_status(locale.text("crash.previous_session"), true);
 }
 
 pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
@@ -89,15 +98,15 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for r in &app.crashes.reports {
                     ui.horizontal(|ui| {
-                        let times = if r.count > 1 { format!("  ×{}", r.count) } else { String::new() };
-                        ui.label(
-                            RichText::new(format!("{}  {}{times}", r.time.replace('T', " ").trim_end_matches('Z'), kind_label(&r.kind))).strong(),
-                        );
+                        ui.label(RichText::new(report_heading(r)).strong());
                         if let Some(c) = &r.command {
                             ui.label(RichText::new(c).monospace().size(11.0).color(t.text_dim));
                         }
                     });
                     ui.label(RichText::new(&r.message).size(12.0));
+                    if r.kind == "unclean_exit" {
+                        ui.label(RichText::new(crate::i18n::tr("crash.unclean_explanation")).size(12.0).color(t.text_dim));
+                    }
                     ui.horizontal(|ui| {
                         if ui.small_button("Report…").clicked() {
                             report = Some(r.id.clone());
@@ -172,6 +181,48 @@ mod tests {
     }
 
     #[test]
+    fn an_old_unclean_exit_is_shown_as_detected_on_a_later_launch() {
+        let d = folder("old-session");
+        let mut h = crate::scenario::Harness::new();
+        h.app.preferences.language = "en".into();
+        h.app.crashes.folder = Some(d.clone());
+        let id = "20261012-162341-bb60791ed6692f1d";
+        let path = d.join(id).join("report.json");
+        let mut report: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        report["message"] = json!("SolidCraft 0.3.2 (started 2026-10-01T10:00:00Z) ended without a clean exit between commands");
+        report["command"] = serde_json::Value::Null;
+        std::fs::write(&path, report.to_string()).unwrap();
+        super::announce(&mut h.app, &solidcraft_engine::crash::list(&d));
+        h.frames(6);
+        assert!(h.app.crashes.open, "unclean exits still alert the user");
+        let status = &h.app.status.as_ref().unwrap().0;
+        assert!(status.contains("earlier SolidCraft session"), "{status}");
+        assert!(status.contains("detected at startup"), "{status}");
+        assert!(h.widget("Detected 2026-10-12 16:23:41 UTC  Closed unexpectedly  ×2").is_some());
+        assert!(h.widget(report["message"].as_str().unwrap()).is_some(), "keep the original session start visible");
+        assert!(h.widget(crate::i18n::tr("crash.unclean_explanation")).is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_panic_keeps_its_event_time_without_the_unclean_exit_explanation() {
+        let d = folder("panic-time");
+        let mut h = crate::scenario::Harness::new();
+        h.app.preferences.language = "en".into();
+        h.app.crashes.folder = Some(d.clone());
+        let path = d.join("20261012-162341-bb60791ed6692f1d").join("report.json");
+        let mut report: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        report["kind"] = json!("command_panic");
+        std::fs::write(&path, report.to_string()).unwrap();
+        super::announce(&mut h.app, &solidcraft_engine::crash::list(&d));
+        h.frames(6);
+        assert!(h.app.crashes.open);
+        assert!(h.widget("2026-10-12 16:23:41 UTC  Internal error in a command  ×2").is_some());
+        assert!(h.widget(crate::i18n::tr("crash.unclean_explanation")).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn a_crash_report_opens_a_reviewed_issue_draft_and_can_be_deleted() {
         let d = folder("draft");
         let mut h = crate::scenario::Harness::new();
@@ -192,7 +243,7 @@ mod tests {
             "solid.box",
             "solidcraft-cli crashes replay 20261012-162341-bb60791ed6692f1d",
             "Renderer: test",
-            "Happened 2 time(s)",
+            "Recorded 2 time(s)",
         ] {
             assert!(draft.body.contains(want), "missing {want:?} in {}", draft.body);
         }

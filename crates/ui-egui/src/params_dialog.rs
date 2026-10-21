@@ -4,6 +4,7 @@
 //! (name, unit, expression, value, comment; add, rename, delete) and model parameters grouped by
 //! the sketch or feature they drive (editable). Expressions validate as you type
 //! (`expr.evaluate`) with a live model preview; Enter or leaving the field applies them.
+//! Escape closes the window and discards pending edits and their preview.
 //! Import and export go through `parameters.import` / `parameters.export`.
 //!
 //! [`complete`] adds suggestions (parameters, functions, units) under any expression box: the
@@ -128,6 +129,21 @@ fn show_value(r: &Row) -> String {
 /// Open the dialog (Change Parameters on the toolbar).
 pub fn open(app: &mut SolveApp) {
     app.params = Some(ParamsDialog::new());
+}
+
+/// Cancel before drawing the editors: egui has already blurred the focused TextEdit on Esc,
+/// and drawing it would apply its pending value through `lost_focus`.
+pub(crate) fn cancel_on_escape(app: &mut SolveApp, ctx: &egui::Context) -> bool {
+    if app.home.open || app.params.is_none() || !ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        return false;
+    }
+    ctx.input_mut(|i| {
+        i.raw.events.retain(|event| !matches!(event, egui::Event::Key { key: egui::Key::Escape, modifiers, .. } if modifiers.matches_logically(egui::Modifiers::NONE)));
+    });
+    // Dropping the dialog discards every draft. The regular preview update clears its scene.
+    app.params = None;
+    app.esc_handled = true;
+    true
 }
 
 /// Draw the dialog when it is open. Called once per frame.
@@ -651,6 +667,199 @@ pub fn complete(ui: &mut egui::Ui, resp: &egui::Response, text: &mut String) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn escape_dialog() -> crate::scenario::Harness {
+        let mut h = crate::scenario::Harness::new();
+        h.app.home.open = false;
+        h.app.run("parameters.add", json!({"name":"width","expression":"10 mm","comment":"Saved comment"})).unwrap();
+        h.step(&json!({"start":"parameters.change"})).unwrap();
+        h.frames(3);
+        h
+    }
+
+    fn escape_state(h: &crate::scenario::Harness) -> Value {
+        let history = |steps: &[solidcraft_engine::Snapshot]| {
+            steps
+                .iter()
+                .map(|s| json!({"label":s.label,"document":s.doc.to_json(),"sketch":s.active_sketch,"moves":s.pending_moves}))
+                .collect::<Vec<_>>()
+        };
+        json!({
+            "document":h.app.session.doc.to_json(), "revision":h.app.session.revision,
+            "undo":history(&h.app.session.undo), "redo":history(&h.app.session.redo),
+            "dirty":h.app.session.is_dirty(), "selection":h.app.session.selection
+        })
+    }
+
+    fn escape_type(h: &mut crate::scenario::Harness, handle: &str, text: &str) {
+        h.run(&json!([
+            {"click":{"handle":handle}}, {"key":"A","cmd":true}, {"text":text}
+        ]))
+        .unwrap();
+    }
+
+    fn escape_key(h: &mut crate::scenario::Harness, pressed: bool) {
+        h.app.synthetic.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.frame();
+    }
+
+    fn escape_closed(h: &mut crate::scenario::Harness, before: &Value, saved_expression: &str) {
+        escape_key(h, true);
+        assert!(h.app.params.is_none(), "the first Escape press closes Parameters");
+        assert_eq!(&escape_state(h), before, "cancelling does not change the document, history or selection");
+        assert!(
+            !h.app.preview.active && !h.app.preview.busy && h.app.preview.replaced.is_empty(),
+            "the parameter preview is cleared in the same frame"
+        );
+        escape_key(h, false);
+        h.step(&json!({"start":"parameters.change"})).unwrap();
+        let d = h.app.params.as_ref().unwrap();
+        assert!(d.editing.is_empty() && d.comments.is_empty() && d.renaming.is_none() && d.preview.is_none());
+        assert!(d.new_name.is_empty() && d.new_comment.is_empty() && !d.adding);
+        assert_eq!(h.app.session.doc.param("width").unwrap().expr, saved_expression);
+    }
+
+    #[test]
+    fn escape_closes_parameters_without_clearing_selection_or_history() {
+        let mut h = escape_dialog();
+        h.app.run("parameters.change", json!({"name":"width","expression":"12 mm"})).unwrap();
+        h.app.run("edit.undo", json!({})).unwrap();
+        h.app.session.selection = vec![solidcraft_engine::Sel::Plane { name: "XY".into() }];
+        h.step(&json!({"click":{"handle":"params:title"}})).unwrap();
+        assert!(!h.app.session.undo.is_empty() && !h.app.session.redo.is_empty());
+        let before = escape_state(&h);
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_valid_parameter_expression_and_preview() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        escape_type(&mut h, "param:width", "20 mm");
+        h.frames(2);
+        assert_eq!(h.app.params.as_ref().unwrap().preview.as_ref().map(|(_, e)| e.as_str()), Some("20 mm"));
+        assert!(h.app.preview.active || h.app.preview.busy);
+        assert_eq!(escape_state(&h), before, "typing only previews the edit");
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_invalid_parameter_expression() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        escape_type(&mut h, "param:width", "missing + 1 mm");
+        assert_eq!(h.app.params.as_ref().unwrap().editing.get("width").map(String::as_str), Some("missing + 1 mm"));
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_parameter_rename() {
+        let mut h = escape_dialog();
+        h.frames(30);
+        let before = escape_state(&h);
+        h.run(&json!([
+            {"click":{"handle":"param:name:width"},"double":true}, {"key":"A","cmd":true}, {"text":"renamed_width"}
+        ]))
+        .unwrap();
+        assert_eq!(h.app.params.as_ref().unwrap().renaming.as_ref().map(|(_, n)| n.as_str()), Some("renamed_width"));
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_parameter_comment() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        h.run(&json!([
+            {"widget":"Saved comment"}, {"key":"A","cmd":true}, {"text":"Pending comment"}
+        ]))
+        .unwrap();
+        assert_eq!(h.app.params.as_ref().unwrap().comments.get("width").map(String::as_str), Some("Pending comment"));
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_valid_new_parameter_from_name() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        h.step(&json!({"click":{"handle":"dialog:table:user:add"}})).unwrap();
+        escape_type(&mut h, "param:new:expression", "25 mm");
+        escape_type(&mut h, "param:new:name", "height");
+        assert_eq!(h.app.params.as_ref().unwrap().new_name, "height");
+        assert_eq!(crate::scenario::count_of("param:new:valid"), Some(1.0));
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_valid_new_parameter_from_expression() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        h.step(&json!({"click":{"handle":"dialog:table:user:add"}})).unwrap();
+        escape_type(&mut h, "param:new:expression", "missing + 1 mm");
+        escape_type(&mut h, "param:new:name", "height");
+        escape_type(&mut h, "param:new:expression", "25 mm");
+        assert_eq!(h.app.params.as_ref().unwrap().new_expr, "25 mm");
+        assert_eq!(crate::scenario::count_of("param:new:valid"), Some(1.0));
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_discards_new_parameter_from_comment() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        h.step(&json!({"click":{"handle":"dialog:table:user:add"}})).unwrap();
+        escape_type(&mut h, "param:new:expression", "missing + 1 mm");
+        escape_type(&mut h, "param:new:name", "height");
+        escape_type(&mut h, "param:new:comment", "Pending new comment");
+        assert_eq!(h.app.params.as_ref().unwrap().new_comment, "Pending new comment");
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_keeps_previously_committed_parameter_edit() {
+        let mut h = escape_dialog();
+        escape_type(&mut h, "param:width", "20 mm");
+        h.step(&json!({"key":"Enter"})).unwrap();
+        assert_eq!(h.app.session.doc.param("width").unwrap().expr, "20 mm");
+        let before = escape_state(&h);
+        escape_type(&mut h, "param:width", "30 mm");
+        escape_closed(&mut h, &before, "20 mm");
+    }
+
+    #[test]
+    fn escape_dismisses_parameter_completion_before_closing_window() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        escape_type(&mut h, "param:width", "wi");
+        assert!(!suggestions(&h.ctx, "wi").is_empty());
+        let editor = h.ctx.memory(|m| m.focused()).unwrap();
+        escape_key(&mut h, true);
+        assert!(h.app.params.is_some(), "the completion popup owns the first Escape");
+        assert!(h.ctx.memory(|m| m.has_focus(editor)));
+        assert_eq!(h.app.params.as_ref().unwrap().editing.get("width").map(String::as_str), Some("wi"));
+        assert_eq!(escape_state(&h), before);
+        escape_key(&mut h, false);
+        escape_closed(&mut h, &before, "10 mm");
+    }
+
+    #[test]
+    fn escape_shortcut_capture_has_priority_over_parameters() {
+        let mut h = escape_dialog();
+        let before = escape_state(&h);
+        h.call("ui.prefs", json!({"open":"Keyboard Shortcuts"}));
+        escape_type(&mut h, "keymap:filter", "solid.extrude");
+        h.step(&json!({"click":{"handle":"keymap:capture:solid.extrude"}})).unwrap();
+        assert!(crate::keymap::capturing(&h.app));
+        escape_key(&mut h, true);
+        assert!(!crate::keymap::capturing(&h.app));
+        assert!(h.app.prefs_window.open && h.app.params.is_some(), "Escape cancels only shortcut capture");
+        assert_eq!(escape_state(&h), before);
+    }
 
     #[test]
     fn words_and_suggestions() {

@@ -1778,6 +1778,14 @@ pub fn shortcuts(app: &mut SolveApp, ctx: &egui::Context) {
     }
     // The Keyboard Shortcuts window is waiting for a key: it is not a shortcut.
     if crate::keymap::capturing(app) {
+        // Parameters is drawn before Preferences; do not let its footer see this Escape.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            crate::keymap::stop_capture(app);
+            app.esc_handled = true;
+        }
+        return;
+    }
+    if crate::params_dialog::cancel_on_escape(app, ctx) {
         return;
     }
     // A dimension value that is taking the keyboard: letters belong to it (a parameter name

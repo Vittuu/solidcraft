@@ -46,11 +46,12 @@ pub struct Request {
     /// What that caller asked of a STEP import besides its path (`up`, `names`): the command
     /// gets them as given.
     pub options: serde_json::Map<String, Value>,
+    locale: crate::i18n::Locale,
 }
 
 impl Request {
     pub fn new(path: &str, kind: Kind) -> Self {
-        Request { path: path.into(), kind, reply: None, scope: None, options: Default::default() }
+        Request { path: path.into(), kind, reply: None, scope: None, options: Default::default(), locale: crate::i18n::Locale::for_language("en") }
     }
     fn insert(&self) -> bool {
         self.kind == Kind::Insert
@@ -72,7 +73,7 @@ impl Request {
     }
     fn answer(&self, r: Result<Value, String>) {
         if let Some(reply) = &self.reply {
-            let _ = reply.send(match r {
+            let _ = reply.send(match crate::control::present_command_result(self.locale, self.command().0, r) {
                 Ok(v) => json!({"ok": true, "result": v}),
                 Err(e) => json!({"ok": false, "error": e}),
             });
@@ -200,7 +201,8 @@ pub fn begin(app: &mut SolveApp, path: &str, insert: bool) {
 }
 
 /// Queue a file operation; on the web (no threads) it runs now.
-pub fn begin_request(app: &mut SolveApp, request: Request) -> Result<(), String> {
+pub fn begin_request(app: &mut SolveApp, mut request: Request) -> Result<(), String> {
+    request.locale = crate::i18n::Locale::for_language(&app.preferences.language);
     #[cfg(target_arch = "wasm32")]
     {
         if staged_kind(&request) {
@@ -282,7 +284,11 @@ pub fn control(app: &mut SolveApp, req: crate::control::ControlRequest) -> Optio
     } else {
         ["up", "names"].iter().filter_map(|k| Some((k.to_string(), params?.get(*k).filter(|v| !v.is_null())?.clone()))).collect()
     };
-    let _ = begin_request(app, Request { path: path.into(), kind, reply: Some(req.reply.clone()), scope, options });
+    let mut request = Request::new(path, kind);
+    request.reply = Some(req.reply.clone());
+    request.scope = scope;
+    request.options = options;
+    let _ = begin_request(app, request);
     None
 }
 
@@ -306,7 +312,7 @@ fn recovered(app: &mut SolveApp, request: &Request) {
     if let Some(Ok(_)) = kept {
         let _ = app.session.execute("doc.recovery_discard", &json!({"id": id, "dir": dir}));
     }
-    app.set_status(format!("recovered {}: save it to keep it", request.path), false);
+    app.set_status(app.tr_format("file.recovered", &[("path", &request.path)]), false);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -343,6 +349,7 @@ fn start(app: &mut SolveApp) {
     let (tx, rx) = std::sync::mpsc::channel();
     let (preview_tx, preview_rx) = std::sync::mpsc::channel();
     let (command, params) = request.command();
+    let locale = request.locale;
     let scope = request.scope.clone();
     let thumbnail = request.kind == Kind::Open;
     // While a design rebuilds, a picture of what is built so far (a large design takes a while).
@@ -352,6 +359,7 @@ fn start(app: &mut SolveApp) {
         let (partial_tx, partial_rx) = std::sync::mpsc::channel();
         let (watch, finished) = (progress.clone(), finished.clone());
         let _ = std::thread::Builder::new().name("file-load-picture".into()).spawn(move || {
+            let _language = crate::i18n::scope(locale.id());
             let stop = || finished.load(Ordering::Relaxed) || watch.is_cancelled();
             while !stop() {
                 std::thread::sleep(std::time::Duration::from_millis(250));
@@ -378,6 +386,7 @@ fn start(app: &mut SolveApp) {
     #[cfg(test)]
     let worker_gate = app.file_load.worker_gate.take();
     let spawned = std::thread::Builder::new().name("file-load".into()).spawn(move || {
+        let _language = crate::i18n::scope(locale.id());
         #[cfg(test)]
         if let Some((started, release)) = worker_gate {
             let _ = started.send(std::thread::current().id());
@@ -428,7 +437,7 @@ fn start(app: &mut SolveApp) {
             })
         }
         Err(e) => {
-            let e = format!("could not start file operation: {e}");
+            let e = app.tr_format("file.start_failed", &[("error", &e.to_string())]);
             request.answer(Err(e.clone()));
             app.set_status(e, true);
         }
@@ -826,9 +835,15 @@ pub fn tick(app: &mut SolveApp, ctx: &egui::Context) {
                 } else {
                     app.set_status(
                         if let Some(w) = warnings.filter(|w| !w.is_empty()) {
-                            format!("imported with {} warning(s): {}", w.len(), w.first().and_then(Value::as_str).unwrap_or(""))
+                            app.tr_format(
+                                "file.import_warnings",
+                                &[
+                                    ("count", &w.len().to_string()),
+                                    ("warning", &request.locale.protocol_error(w.first().and_then(Value::as_str).unwrap_or(""))),
+                                ],
+                            )
                         } else {
-                            format!("{} done", if request.insert() { "Insert" } else { "Open" })
+                            app.tr_format("ui.command_done", &[("command", app.tr_label(if request.insert() { "Insert" } else { "Open" }))])
                         },
                         false,
                     );
@@ -844,7 +859,10 @@ pub fn tick(app: &mut SolveApp, ctx: &egui::Context) {
                 request.answer(Err(e.clone()));
                 if let Kind::Recover { id, dir } = &request.kind {
                     reoffer(app, id, dir.as_deref());
-                    app.set_status(format!("could not recover {}: {e}. Discard it or choose Later", request.path), true);
+                    app.set_status(
+                        app.tr_format("file.recover_failed", &[("path", &request.path), ("error", &request.locale.protocol_error(&e))]),
+                        true,
+                    );
                 } else {
                     app.set_status(e, true);
                 }
@@ -994,7 +1012,7 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
         // import to overlap it in memory. The rebuild stops at its next feature and the
         // current design stays as it was.
         app.file_load.cancel();
-        app.set_status(if export { crate::i18n::tr_label("dxf.cancelled") } else { "file operation cancelled" }, false);
+        app.set_status(app.tr(if export { "dxf.cancelled" } else { "file.cancelled" }).to_string(), false);
     }
 }
 

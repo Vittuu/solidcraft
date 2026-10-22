@@ -47,7 +47,8 @@ pub(crate) fn face_text(painter: &egui::Painter, face: &Facet, ink: Color32, fon
         return;
     }
     let ink = ink.gamma_multiply(opacity);
-    let galley = painter.layout_no_wrap(face.label.clone(), FontId::proportional(font_size), ink);
+    let display = face.label.split(" · ").map(crate::i18n::tr_label).collect::<Vec<_>>().join(" · ");
+    let galley = painter.layout_no_wrap(display, FontId::proportional(font_size), ink);
     let centre = galley.rect.center();
     // Keep atlas-pixel UVs until the frame is complete: another label or widget
     // can grow the atlas after this mesh is created, invalidating early UVs.

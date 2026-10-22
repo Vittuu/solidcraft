@@ -410,7 +410,7 @@ jobs:
     # after them. nextest hands tests to its threads as they free up, the slowest first (priority
     # in .config/nextest.toml), so they start at once and no core idles at the end.
     runs-on: blacksmith-32vcpu-ubuntu-2404
-    timeout-minutes: 60
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 60 || 120 }}
     env:
       # Pictures (snapshots, screenshots, ui.render, the viewport's offscreen tests) are drawn on
       # the GPU. The runner has none: Mesa's lavapipe (software Vulkan) draws them, and a test that

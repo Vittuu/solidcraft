@@ -95,13 +95,14 @@ Cancel Render and Export PNG. Replace existing file is an explicit opt-in. A fai
 cancelled new render leaves the previous successful export available.
 
 Native PNG export in the combined integration uses the document-bound asynchronous
-picker from #1114. The requested job ID and overwrite choice are captured before the
-dialog opens: cancellation writes nothing, closing the originating document drops
-the answer, and an evicted image fails instead of substituting a newer result. A tab
-switch does not redirect the export to another document.
+picker from #1127. The requested job ID and overwrite choice are captured before the
+dialog opens: cancellation writes nothing, replacement of the originating document drops
+the answer, and an evicted image fails instead of substituting a newer result. Model input
+and tab switching/closing wait for the answer; drawing and resizing continue.
 
-Controls and phase messages use stable offline catalog IDs in English, Japanese, Chinese,
-German and Korean; command IDs and scenario handles remain unchanged.
+Controls and phase messages use stable offline catalog IDs; registered languages are
+English, Japanese, Chinese, German, French, Korean, Russian, Ukrainian and Brazilian Portuguese,
+with fallback for partial-catalog gaps. Command IDs and scenario handles remain unchanged.
 
 ```sh
 solidcraft-cli render examples/render-studio.json --out product.png --width 800 --height 600

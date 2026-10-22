@@ -129,13 +129,13 @@ pub fn relaunch_after(installer: &Path, args: &[String], exe: &Path) -> (PathBuf
 
 /// `sums` is signed by `key` (minisign, prehashed) with a trusted comment naming `tag`.
 pub fn verify_signature(sums: &[u8], signature: &str, key: &str, tag: &str) -> Result<(), String> {
-    let key = minisign_verify::PublicKey::from_base64(key.trim()).map_err(|e| format!("update signing key: {e}"))?;
+    let key = minisign_verify::PublicKey::from_base64(key.trim()).map_err(|e| crate::i18n::diagnostic(&format!("update signing key: {e}")))?;
     let sig = minisign_verify::Signature::decode(signature).map_err(|e| format!("{SUMS_SIG}: {e}"))?;
-    key.verify(sums, &sig, false).map_err(|e| format!("{SUMS} isn't signed by SolidCraft's release key: {e}"))?;
+    key.verify(sums, &sig, false).map_err(|e| crate::i18n::diagnostic(&format!("{SUMS} isn't signed by SolidCraft's release key: {e}")))?;
     // The comment is covered by the signature: an older release's signed list can't stand in.
     let comment = sig.trusted_comment();
     if !comment.split_whitespace().any(|w| w == tag) {
-        return Err(format!("{SUMS_SIG} is for `{comment}`, not {tag}"));
+        return Err(crate::i18n::diagnostic(&format!("{SUMS_SIG} is for `{comment}`, not {tag}")));
     }
     Ok(())
 }
@@ -165,24 +165,37 @@ pub fn run(
     staging: &Path,
     progress: &Progress,
 ) -> Result<Outcome, String> {
-    let asset = release.asset_for(kind, arch).ok_or_else(|| format!("this release has no package for a {} on {arch}", kind.label()))?;
+    let asset = release
+        .asset_for(kind, arch)
+        .ok_or_else(|| crate::i18n::diagnostic(&format!("this release has no package for a {} on {arch}", kind.display_label())))?;
     if asset.size > MAX_PACKAGE {
-        return Err(format!("{} is too large ({} bytes)", asset.name, asset.size));
+        return Err(crate::i18n::diagnostic(&format!("{} is too large ({} bytes)", asset.name, asset.size)));
     }
-    let sums_url = release.assets.iter().find(|a| a.name == SUMS).map(|a| a.url.clone()).ok_or_else(|| format!("this release has no {SUMS}"))?;
-    let sums = (net.get)(&sums_url).map_err(|e| format!("{SUMS}: {e}"))?;
+    let sums_url = release
+        .assets
+        .iter()
+        .find(|a| a.name == SUMS)
+        .map(|a| a.url.clone())
+        .ok_or_else(|| crate::i18n::diagnostic(&format!("this release has no {SUMS}")))?;
+    let sums = (net.get)(&sums_url).map_err(|e| {
+        let e = super::fetch_error_text(&e);
+        format!("{SUMS}: {e}")
+    })?;
     if let Some(key) = PUBLIC_KEY {
         let sig_url = release
             .assets
             .iter()
             .find(|a| a.name == SUMS_SIG)
             .map(|a| a.url.clone())
-            .ok_or_else(|| format!("this release isn't signed (no {SUMS_SIG})"))?;
-        let sig = (net.get)(&sig_url).map_err(|e| format!("{SUMS_SIG}: {e}"))?;
+            .ok_or_else(|| crate::i18n::diagnostic(&format!("this release isn't signed (no {SUMS_SIG})")))?;
+        let sig = (net.get)(&sig_url).map_err(|e| {
+            let e = super::fetch_error_text(&e);
+            format!("{SUMS_SIG}: {e}")
+        })?;
         verify_signature(&sums, &String::from_utf8_lossy(&sig), key, &release.tag)?;
     }
     let sums = String::from_utf8_lossy(&sums);
-    let expected = expected_sha256(&sums, &asset.name).ok_or_else(|| format!("{SUMS} doesn't list {}", asset.name))?;
+    let expected = expected_sha256(&sums, &asset.name).ok_or_else(|| crate::i18n::diagnostic(&format!("{SUMS} doesn't list {}", asset.name)))?;
 
     // Where the download goes: beside its target when it replaces a file (one file system, so
     // the final rename is atomic), else in the staging folder.
@@ -206,13 +219,19 @@ pub fn run(
         }
         !progress.cancel.load(Ordering::Relaxed) && done <= MAX_PACKAGE
     };
-    (net.download)(&asset.url, &part, &report).map_err(|e| cleanup(format!("{}: {e}", asset.name)))?;
+    (net.download)(&asset.url, &part, &report).map_err(|e| {
+        let e = super::fetch_error_text(&e);
+        cleanup(format!("{}: {e}", asset.name))
+    })?;
     if progress.cancel.load(Ordering::Relaxed) {
-        return Err(cleanup("cancelled".into()));
+        return Err(cleanup(crate::i18n::diagnostic("cancelled")));
     }
     let actual = sha256_file(&part).map_err(cleanup)?;
     if actual != expected {
-        return Err(cleanup(format!("{} doesn't match {SUMS} (got {actual}, expected {expected}); it was deleted", asset.name)));
+        return Err(cleanup(crate::i18n::diagnostic(&format!(
+            "{} doesn't match {SUMS} (got {actual}, expected {expected}); it was deleted",
+            asset.name
+        ))));
     }
     apply(method, &part).map_err(cleanup)
 }
@@ -222,7 +241,7 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
     match method {
         Method::AppImage(target) => {
             make_executable(package)?;
-            std::fs::rename(package, target).map_err(|e| format!("replacing {}: {e}", target.display()))?;
+            std::fs::rename(package, target).map_err(|e| crate::i18n::diagnostic(&format!("replacing {}: {e}", target.display())))?;
             Ok(Outcome::Restart(target.clone()))
         }
         Method::Exe(exe) => {
@@ -230,7 +249,7 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
             Ok(Outcome::Restart(exe.clone()))
         }
         Method::PortableZip(exe) => {
-            let dir = exe.parent().ok_or_else(|| format!("{} has no folder", exe.display()))?;
+            let dir = exe.parent().ok_or_else(|| crate::i18n::diagnostic(&format!("{} has no folder", exe.display())))?;
             let name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "solidcraft.exe".into());
             let files = [name.as_str(), "solidcraft-cli.exe"];
             let mut extracted = Vec::new();
@@ -238,7 +257,7 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
                 let to = dir.join(format!("{file}.update"));
                 match unzip_one(package, file, &to) {
                     Ok(true) => extracted.push((dir.join(file), to)),
-                    Ok(false) if file == name => return Err(format!("the portable zip has no {file}")),
+                    Ok(false) if file == name => return Err(crate::i18n::diagnostic(&format!("the portable zip has no {file}"))),
                     Ok(false) => {}
                     Err(e) => {
                         for (_, t) in &extracted {
@@ -261,7 +280,7 @@ pub fn apply(method: &Method, package: &Path) -> Result<Outcome, String> {
 
 /// `path` with `suffix` appended to its file name, in the same folder.
 fn sibling(path: &Path, suffix: &str) -> Result<PathBuf, String> {
-    let name = path.file_name().ok_or_else(|| format!("{} has no file name", path.display()))?;
+    let name = path.file_name().ok_or_else(|| crate::i18n::diagnostic(&format!("{} has no file name", path.display())))?;
     Ok(path.with_file_name(format!("{}{suffix}", name.to_string_lossy())))
 }
 
@@ -272,13 +291,13 @@ pub fn swap(target: &Path, new: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(&old);
     let had = target.exists();
     if had {
-        std::fs::rename(target, &old).map_err(|e| format!("moving {} aside: {e}", target.display()))?;
+        std::fs::rename(target, &old).map_err(|e| crate::i18n::diagnostic(&format!("moving {} aside: {e}", target.display())))?;
     }
     if let Err(e) = std::fs::rename(new, target) {
         if had {
             let _ = std::fs::rename(&old, target);
         }
-        return Err(format!("putting the new {} in place: {e}", target.display()));
+        return Err(crate::i18n::diagnostic(&format!("putting the new {} in place: {e}", target.display())));
     }
     // Not running: no need to keep the old one (the running exe's `.old` goes at next start).
     let _ = std::fs::remove_file(&old);
@@ -298,7 +317,7 @@ fn unzip_one(zip: &Path, name: &str, to: &Path) -> Result<bool, String> {
     let Some(index) = index else { return Ok(false) };
     let mut entry = archive.by_index(index).map_err(|e| format!("{}: {e}", zip.display()))?;
     if entry.size() > MAX_UNZIPPED {
-        return Err(format!("{name} in the zip is too large"));
+        return Err(crate::i18n::diagnostic(&format!("{name} in the zip is too large")));
     }
     // The file is closed at the end of this block (before it may be deleted below).
     let copied = {
@@ -309,7 +328,7 @@ fn unzip_one(zip: &Path, name: &str, to: &Path) -> Result<bool, String> {
     };
     if copied > MAX_UNZIPPED {
         let _ = std::fs::remove_file(to);
-        return Err(format!("{name} in the zip is too large"));
+        return Err(crate::i18n::diagnostic(&format!("{name} in the zip is too large")));
     }
     Ok(true)
 }

@@ -31,7 +31,7 @@ const AREAS: &[(&str, &str)] = &[
 
 pub fn run(root: &Path) -> Result<(), String> {
     let out = crate::cargo()
-        .args(["run", "-q", "--release", "-p", "solidcraft-cli", "--", "commands"])
+        .args(["run", "-q", "--release", "-p", "solidcraft-cli", "--", "--language", "en", "commands"])
         .output()
         .map_err(|e| format!("solidcraft-cli: {e}"))?;
     if !out.status.success() {
@@ -41,7 +41,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     let list = cmds.as_array().map(Vec::as_slice).unwrap_or_default();
     let md = page(list);
     std::fs::write(root.join("docs/features.md"), md).map_err(|e| format!("docs/features.md: {e}"))?;
-    println!("features: {} commands → docs/features.md", list.len());
+    humanln!("features: {} commands → docs/features.md", list.len());
     Ok(())
 }
 

@@ -29,6 +29,116 @@ fn renders() -> bool {
     }
 }
 
+#[test]
+fn portuguese_metadata_preserves_tool_schemas_and_approval_hints() {
+    fn without_prose(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                object.remove("title");
+                object.remove("description");
+                for value in object.values_mut() {
+                    without_prose(value);
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(without_prose),
+            _ => {}
+        }
+    }
+    fn translated_fields(value: &Value, translations: &Value) {
+        match value {
+            Value::Object(object) => {
+                for (key, value) in object {
+                    if matches!(key.as_str(), "title" | "description") {
+                        let source = value.as_str().unwrap();
+                        assert!(
+                            translations.get(source).and_then(Value::as_str).is_some_and(|text| !text.is_empty()),
+                            "missing protocol text: {source}"
+                        );
+                    } else {
+                        translated_fields(value, translations);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|value| translated_fields(value, translations)),
+            _ => {}
+        }
+    }
+    let mut en = server();
+    let mut pt = server().with_language("pt-BR");
+    let mut english = call(&mut en, 1, "tools/list", json!({}));
+    let mut portuguese = call(&mut pt, 1, "tools/list", json!({}));
+    let dictionary: Value = serde_json::from_str(include_str!("../../../assets/locales/protocol/pt-BR.json")).unwrap();
+    translated_fields(&english, &dictionary);
+    assert_eq!(portuguese["result"]["tools"][0]["title"], "Listar comandos");
+    without_prose(&mut english);
+    without_prose(&mut portuguese);
+    assert_eq!(english, portuguese);
+    let init = call(&mut pt, 2, "initialize", json!({}));
+    let instructions = init["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains("milímetros"), "{instructions}");
+    assert!(instructions.contains("solid.extrude {distance, operation?: new|join|cut|intersect}"), "{instructions}");
+    assert!(instructions.contains("sketch.rectangle.two_point {p0, p1}"), "{instructions}");
+}
+
+#[test]
+fn portuguese_command_help_and_search_keep_machine_fields() {
+    let mut en = server();
+    let mut pt = server().with_language("pt-BR");
+    let mut english = tool(&mut en, "list_commands", json!({}));
+    let mut portuguese = tool(&mut pt, "list_commands", json!({}));
+    let parameters: Value = serde_json::from_str(include_str!("../../../assets/locales/commands/pt-BR.json")).unwrap();
+    for command in english.as_array().unwrap() {
+        if command["params"].as_str().is_some_and(|text| !text.is_empty()) {
+            let id = command["id"].as_str().unwrap();
+            assert!(parameters.get(id).and_then(Value::as_str).is_some_and(|text| !text.is_empty()), "missing parameter help: {id}");
+        }
+    }
+    let line = portuguese.as_array().unwrap().iter().find(|command| command["id"] == "sketch.line").unwrap();
+    assert_eq!(line["disabled_reason"], "nenhum esboço está sendo editado (use Criar esboço ou Editar esboço primeiro)");
+    let extrude = portuguese.as_array().unwrap().iter().find(|command| command["id"] == "solid.extrude").unwrap();
+    assert_eq!(extrude["label"], "Extrusão");
+    assert_ne!(extrude["params"], english.as_array().unwrap().iter().find(|command| command["id"] == "solid.extrude").unwrap()["params"]);
+    for commands in [&mut english, &mut portuguese] {
+        for command in commands.as_array_mut().unwrap() {
+            let object = command.as_object_mut().unwrap();
+            for field in ["label", "tab", "panel", "params", "disabled_reason"] {
+                object.remove(field);
+            }
+        }
+    }
+    assert_eq!(english, portuguese);
+    for filter in ["extrusão", "solid.extrude", "extrude"] {
+        let commands = tool(&mut pt, "list_commands", json!({"filter": filter}));
+        assert!(commands.as_array().unwrap().iter().any(|command| command["id"] == "solid.extrude"), "{filter}: {commands}");
+    }
+    let resource = call(&mut pt, 3, "resources/read", json!({"uri": "solidcraft://commands"}));
+    let commands: Value = serde_json::from_str(resource["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert!(commands.as_array().unwrap().iter().any(|command| command["id"] == "solid.extrude" && command["label"] == "Extrusão"));
+    let result = tool(&mut pt, "execute", json!({"command": "solid.box", "params": {"length": 10, "width": 20, "height": 30}}));
+    assert!(result.is_object(), "{result}");
+    assert!((volume(&mut pt) - 6000.0).abs() < 1e-6);
+}
+
+#[test]
+fn portuguese_protocol_errors_keep_codes_ids_and_literal_details() {
+    let mut pt = server().with_language("pt-BR");
+    for (message, code, expected) in
+        [("[]", -32600, "lote vazio"), ("17", -32600, "a mensagem deve ser um objeto"), (r#"{"jsonrpc":"2.0","id":37}"#, -32600, "`method` ausente")]
+    {
+        let response: Value = serde_json::from_str(&pt.handle_line(message).unwrap()).unwrap();
+        assert_eq!(response["error"]["code"], code);
+        assert_eq!(response["error"]["message"], expected);
+    }
+    let response = raw_tool(&mut pt, "execute", json!({}));
+    assert_eq!(response["error"]["code"], -32602);
+    assert_eq!(response["error"]["message"], "execute: argumento obrigatório ausente: `command`");
+    let locale = solidcraft_engine::i18n::Locale::for_language("pt-BR");
+    let details = "driver {x}: device:error";
+    assert_eq!(locale.protocol_error(&format!("parse error: {details}")), format!("erro de análise: {details}"));
+    let deeply_nested = "a: ".repeat(10_000);
+    assert_eq!(locale.protocol_error(&deeply_nested), deeply_nested);
+}
+
 fn call(s: &mut Server, id: u64, method: &str, params: Value) -> Value {
     let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
     let r = s.handle_line(&line).expect("reply");
@@ -678,12 +788,12 @@ fn tool_calls_stay_inside_the_agents_folders() {
     }
     let escapes = vec![at(&out, "x.step"), at(&root, "../out/x.step")];
     #[cfg(unix)]
-    let mut escapes = escapes;
-    #[cfg(unix)]
-    {
+    let escapes = {
+        let mut escapes = escapes;
         std::os::unix::fs::symlink(&out, root.join("link")).unwrap();
         escapes.push(at(&root, "link/x.step"));
-    }
+        escapes
+    };
     for p in escapes {
         for (name, args) in [
             ("export", json!({"path": p})),

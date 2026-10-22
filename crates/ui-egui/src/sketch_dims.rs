@@ -305,31 +305,33 @@ pub fn dimensions(t: &Tool) -> Value {
 
 /// Invalid values stay in the current field, so users can correct them before another stage.
 pub fn validate(app: &SolveApp, t: &Tool) -> Result<(), String> {
+    let _language = crate::i18n::scope(&app.preferences.language);
     for dimension in t.dim_history.iter().chain(&t.dims).filter(|dimension| dimension.locked) {
         if dimension.value.len() > 4096 {
-            return Err(format!("{} expression is too long", dimension.label));
+            return Err(crate::i18n::format("ui.dimension_expression_too_long", &[("dimension", crate::i18n::tr_label(dimension.label))]));
         }
-        let value = app.session.doc.eval(&dimension.value, dimension.kind).map_err(|error| format!("{}: {error}", dimension.label))?;
+        let value =
+            app.session.doc.eval(&dimension.value, dimension.kind).map_err(|error| format!("{}: {error}", crate::i18n::tr_label(dimension.label)))?;
         if !value.is_finite() || value.abs() > 1e9 {
-            return Err(format!("{} must be finite and within the model's size limits", dimension.label));
+            return Err(crate::i18n::format("ui.dimension_size_limits", &[("dimension", crate::i18n::tr_label(dimension.label))]));
         }
         match dimension.label {
             "Angle" => {}
             "Sweep" if value.abs() > 1e-9 && value.abs() < std::f64::consts::TAU - 1e-9 => {}
-            "Sweep" => return Err("Sweep must lie strictly between -360 and 360 degrees, and cannot be zero".into()),
+            "Sweep" => return Err(crate::i18n::tr("ui.tool_sweep_range").into()),
             "Sides" if (3.0..=200.0).contains(&value) && value.fract() == 0.0 => {}
-            "Sides" => return Err("Sides must be an integer from 3 to 200".into()),
+            "Sides" => return Err(crate::i18n::tr("ui.tool_sides_range").into()),
             "Rho" if value > 1e-6 && value < 1.0 - 1e-6 => {}
-            "Rho" => return Err("Rho must lie strictly between 0 and 1 (below 0.5 an ellipse, 0.5 a parabola, above 0.5 a hyperbola)".into()),
+            "Rho" => return Err(crate::i18n::tr("ui.tool_rho_range").into()),
             _ if value > 1e-9 => {}
-            _ => return Err(format!("{} must be positive", dimension.label)),
+            _ => return Err(crate::i18n::format("ui.dimension_positive", &[("dimension", crate::i18n::tr_label(dimension.label))])),
         }
     }
     if t.cmd == "sketch.slot.overall"
         && let (Some(length), Some(width)) = (locked(app, t, "Length"), locked(app, t, "Width"))
         && length <= width
     {
-        return Err("Overall slot Length must exceed Width".into());
+        return Err(crate::i18n::tr("ui.tool_overall_slot_size").into());
     }
     Ok(())
 }

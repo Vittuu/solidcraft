@@ -1,5 +1,44 @@
 # Attribution
 
+| File | Author | Source | Licence |
+|---|---|---|---|
+| assets/locales/book/pt-BR.json | SolidCraft contributors | Original Brazilian Portuguese translations of mdBook navigation, search and clipboard presentation | MIT OR Apache-2.0 |
+| assets/locales/commands/pt-BR.json | SolidCraft contributors | Original Brazilian Portuguese command parameter documentation | MIT OR Apache-2.0 |
+| assets/locales/cs.json | potuzai | Czech translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/da.json | SolidCraft contributors | Original Danish translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/de.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
+| assets/locales/diagnostics/arguments.json | SolidCraft contributors | Audited diagnostic template fields containing nested project-authored prose | MIT OR Apache-2.0 |
+| assets/locales/diagnostics/pt-BR.json | SolidCraft contributors | Original Brazilian Portuguese translations of project-authored diagnostics and workspace reports | MIT OR Apache-2.0 |
+| assets/locales/en-GB.json | SolidCraft contributors | English (UK): the English catalog's messages whose spelling differs, in UK spelling | MIT OR Apache-2.0 |
+| assets/locales/en.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
+| assets/locales/es.json | jawler | Spanish (Spain) translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/fr.json | rlartot | French translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/gl.json | Pablo López (pablopeza) | Galician translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/hu.json | SolidCraft contributors | Original Hungarian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/id.json | SolidCraft contributors | Original Indonesian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/it.json | SolidCraft contributors | Original Italian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/ja.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
+| assets/locales/ko.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
+| assets/locales/ms.json | A.Hakim (a-hakim) | Malay translation of the English message catalog | MIT OR Apache-2.0 |
+| assets/locales/nl.json | SolidCraft contributors | Original Dutch translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/pl.json | cyryllo | Polish translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/protocol/pt-BR.json | SolidCraft contributors | Original Brazilian Portuguese CLI and MCP presentation translations | MIT OR Apache-2.0 |
+| assets/locales/pt-BR.json | DuBearte | Brazilian Portuguese translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/ro.json | SolidCraft contributors | Original Romanian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/ru.json | Alex Pro (del000) | Russian translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/sv.json | SolidCraft contributors | Original Swedish translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/tr.json | macrulz54 | Turkish translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/uk.json | Igor Bronovskyi (BrunIF) | Ukrainian translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/vi.json | vandang890615 | Vietnamese translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
+| assets/locales/zh-TW.json | SolidCraft contributors | Original Traditional Chinese (Taiwan) translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
+| assets/locales/zh.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
+| assets/documentation/screenshots/source/sample-plate-pt-BR.png | SolidCraft contributors | Original screenshot of SolidCraft 0.10.0 with Brazilian Portuguese UI and the public sample plate; source for the Portuguese manual's generated sample-plate.png | MIT OR Apache-2.0 |
+| docs/pt-BR/book/src/generated/sample-plate.png | SolidCraft contributors | Copy of docs/screenshots/sample-plate.png generated by cargo xtask book (gitignored) | MIT OR Apache-2.0 |
+| docs/pt-BR/book/src/generated/bracket.png | SolidCraft contributors | Copy of the original SolidCraft render generated by cargo xtask book (gitignored) | MIT OR Apache-2.0 |
+| docs/pt-BR/book/src/generated/enclosure.png | SolidCraft contributors | Copy of the original SolidCraft render generated by cargo xtask book (gitignored) | MIT OR Apache-2.0 |
+| docs/pt-BR/book/src/generated/revolve.png | SolidCraft contributors | Copy of the original SolidCraft render generated by cargo xtask book (gitignored) | MIT OR Apache-2.0 |
+| docs/pt-BR/book/src/generated/sheet-metal.png | SolidCraft contributors | Copy of the original SolidCraft render generated by cargo xtask book (gitignored) | MIT OR Apache-2.0 |
+
 Every non-code asset in this repository (images, icons, fonts, example parts) is listed here with
 its author, source and licence. `cargo xtask assets` (part of `cargo xtask ci`) fails if an asset
 file is missing from this table.
@@ -115,31 +154,6 @@ Editable drawing code, native projects and shipped exports are collected under `
 | assets/icons/ui/source/markers.rs | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
 | assets/icons/ui/source/navigation.rs | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
 | assets/icons/ui/source/pointer.rs | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
-| assets/locales/cs.json | potuzai | Czech translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/da.json | SolidCraft contributors | Original Danish translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/de.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
-| assets/locales/en-GB.json | SolidCraft contributors | English (UK): the English catalog's messages whose spelling differs, in UK spelling | MIT OR Apache-2.0 |
-| assets/locales/en.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
-| assets/locales/es.json | jawler | Spanish (Spain) translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/fr.json | rlartot | French translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/gl.json | Pablo López (pablopeza) | Galician translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/hu.json | SolidCraft contributors | Original Hungarian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/id.json | SolidCraft contributors | Original Indonesian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/it.json | SolidCraft contributors | Original Italian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/ja.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
-| assets/locales/ko.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
-| assets/locales/ms.json | A.Hakim (a-hakim) | Malay translation of the English message catalog | MIT OR Apache-2.0 |
-| assets/locales/nl.json | SolidCraft contributors | Original Dutch translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/pl.json | cyryllo | Polish translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/ru.json | Alex Pro (del000) | Russian translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/sv.json | SolidCraft contributors | Original Swedish translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/pt-BR.json | DuBearte | Brazilian Portuguese translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/ro.json | SolidCraft contributors | Original Romanian translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
-| assets/locales/tr.json | macrulz54 | Turkish translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/uk.json | Igor Bronovskyi (BrunIF) | Ukrainian translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/vi.json | vandang890615 | Vietnamese translation of the English catalog, contributed upstream | MIT OR Apache-2.0 |
-| assets/locales/zh.json | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
-| assets/locales/zh-TW.json | SolidCraft contributors | Original Traditional Chinese (Taiwan) translation of SolidCraft's English catalog; no commercial CAD text used | MIT OR Apache-2.0 |
 | assets/materials/library.rs | SolidCraft contributors | Original SolidCraft resource data or drawing code, collected without redesign | MIT OR Apache-2.0 |
 | assets/platforms/linux/ai.storyteller.solidcraft.desktop | PhotoCraft / SolidCraft contributors | PhotoCraft packaging templates (https://github.com/storytold/photocraft), adapted for SolidCraft | Apache-2.0 |
 | assets/platforms/linux/ai.storyteller.solidcraft.metainfo.xml.in | PhotoCraft / SolidCraft contributors | PhotoCraft packaging templates (https://github.com/storytold/photocraft), adapted for SolidCraft | Apache-2.0 |

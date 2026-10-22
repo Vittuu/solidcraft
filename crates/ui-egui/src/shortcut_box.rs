@@ -299,6 +299,7 @@ fn close(app: &mut SolveApp) {
 }
 
 pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
+    let _language = crate::i18n::scope(&app.preferences.language);
     let t = Tokens::get();
     let screen = ctx.content_rect();
     let open = app.ui.palette_open;
@@ -707,6 +708,22 @@ mod tests {
         drop(_ja);
         let row = search(&app, "center rect").into_iter().find(|r| r.0 == "sketch.rectangle.center").unwrap();
         assert_eq!((row.1, row.3), ("Center Rectangle", Some(("SKETCH", "CREATE"))));
+    }
+
+    #[test]
+    fn portuguese_search_keeps_english_queries_and_canonical_command_ids() {
+        let app = SolveApp::new(solidcraft_engine::Session::default(), Default::default());
+        let _language = crate::i18n::scope("pt-BR");
+        let locale = crate::i18n::Locale::for_language("pt-BR");
+        let command = solidcraft_engine::find_command("solid.extrude").unwrap();
+        let label = locale.label(command.label);
+        assert_ne!(label, command.label);
+        for query in [label, "extrude", "solid.extrude"] {
+            let rows = search(&app, query);
+            let row = rows.iter().find(|row| row.0 == command.id).unwrap_or_else(|| panic!("{query:?}"));
+            assert_eq!(row.1, label);
+            assert_eq!(row.3, Some((locale.label("MODEL"), locale.label("CREATE"))));
+        }
     }
 
     #[test]

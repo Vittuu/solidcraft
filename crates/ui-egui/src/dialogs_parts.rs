@@ -111,6 +111,20 @@ fn picture(p: &Value) -> Option<egui::ColorImage> {
     crate::home::thumbnail(&s)
 }
 
+fn family_display(family: &Family) -> &str {
+    let builtin = matches!(
+        (family.id.as_str(), family.name.as_str()),
+        ("socket_head_cap_screw", "Socket head cap screw")
+            | ("hex_bolt", "Hex head bolt / screw")
+            | ("hex_nut", "Hex nut")
+            | ("washer", "Plain washer")
+            | ("set_screw", "Hex socket set screw, flat point")
+            | ("dowel_pin", "Parallel pin (dowel)")
+            | ("bearing", "Deep groove ball bearing (envelope)")
+    );
+    if builtin { crate::i18n::tr_label(&family.name) } else { &family.name }
+}
+
 /// The dialog's rows.
 pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Pt, inputs: &[SelInput]) -> bool {
     let t = Tokens::get();
@@ -131,8 +145,13 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Pt, inputs: &[SelInpu
     let names: Vec<String> =
         lib.iter().map(|f| if f.standard.is_empty() { f.name.clone() } else { format!("{} ({})", f.name, f.standard) }).collect();
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let display_names: Vec<String> = lib
+        .iter()
+        .map(|f| if f.standard.is_empty() { family_display(f).to_string() } else { format!("{} ({})", family_display(f), f.standard) })
+        .collect();
+    let display: Vec<&str> = display_names.iter().map(String::as_str).collect();
     let before = k.family;
-    choice_row(ui, "Type", "pt_family", &mut k.family, &refs);
+    form_row(ui, "Type", |ui| crate::ui_kit::dropdown_display(ui, "pt_family", &mut k.family, &refs, &display));
     if k.family != before {
         k.size = 0;
         k.length = None;
@@ -150,7 +169,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Pt, inputs: &[SelInpu
             k.length = i.checked_sub(1);
         });
     }
-    text_row(ui, "Name", &mut k.name, "automatic");
+    text_row(ui, "Name", &mut k.name, crate::i18n::tr("parts.automatic_name"));
     // The part, and its table values.
     let key = (k.family, k.size, k.length);
     let tex_id = egui::Id::new("sc_part_picture");

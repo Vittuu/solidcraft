@@ -622,9 +622,9 @@ fn edit_params(app: &SolveApp, k: &Tx) -> Result<Value, String> {
             *original
         } else {
             let typed = doc.with_design_unit(value.trim(), *kind);
-            let v = doc.eval(&typed, *kind).map_err(|e| format!("{label}: {e}"))?;
+            let v = doc.eval(&typed, *kind).map_err(|e| format!("{}: {e}", crate::i18n::tr_label(label)))?;
             if !v.is_finite() {
-                return Err(format!("{label}: not a finite number"));
+                return Err(crate::i18n::format("error.not_finite", &[("label", crate::i18n::tr_label(label))]));
             }
             v
         };

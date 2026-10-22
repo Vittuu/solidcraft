@@ -149,7 +149,7 @@ fn run(app: &mut SolveApp, params: &Value) {
             app.tree.picked_canvases.clear();
             app.tree.picked_joints.clear();
             if let Some(s) = r["skipped"].as_array().and_then(|a| a.first()).and_then(Value::as_str) {
-                app.set_status(format!("deleted; {s}"), false);
+                app.set_status(app.tr_format("delete.done", &[("details", s)]), false);
             }
         }
         Err(e) => app.set_status(e.replace("selection.delete: ", ""), true),

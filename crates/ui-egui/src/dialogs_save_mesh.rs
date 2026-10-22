@@ -353,9 +353,11 @@ fn save(app: &mut SolveApp, mut params: Value, path: &str) {
     let _language = crate::i18n::scope(&app.preferences.language);
     params["path"] = json!(path);
     let Ok(result) = app.run("file.save_mesh", params) else { return };
-    match result.get("slicer_error").and_then(Value::as_str) {
+    let mut presented = result.clone();
+    crate::i18n::Locale::for_language(&app.preferences.language).command_result("file.save_mesh", &mut presented);
+    match presented.get("slicer_error").and_then(Value::as_str) {
         Some(e) => app.set_status(e.to_string(), true),
-        None => match result.get("slicer").and_then(Value::as_str) {
+        None => match presented.get("slicer").and_then(Value::as_str) {
             Some(s) => app.set_status(crate::i18n::format("ui.sent_to_slicer", &[("slicer", s)]), false),
             None => app.set_status(crate::i18n::format("ui.saved_to", &[("path", path)]), false),
         },

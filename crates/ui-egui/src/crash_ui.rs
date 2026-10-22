@@ -144,7 +144,7 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
                 );
             }
             if !app.crashes.note.is_empty() {
-                ui_kit::text(ui, &app.crashes.note, ui_kit::Text::Note("note"));
+                ui_kit::text(ui, &crate::display_error(&app.crashes.note), ui_kit::Text::Note("note"));
             }
             if ui_kit::icon_label_button(ui, crate::i18n::tr_label("Delete all"), "delete", !app.crashes.reports.is_empty(), true).clicked() {
                 delete = Some(None);

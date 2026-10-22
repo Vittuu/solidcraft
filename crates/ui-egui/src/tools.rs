@@ -139,21 +139,27 @@ impl Tool {
 
 pub fn hint(id: &str) -> String {
     match id {
-        "sketch.line" => "Line: click points; right-click or Esc to finish".into(),
-        "sketch.rectangle.two_point" => "Rectangle: click two opposite corners".into(),
-        "sketch.rectangle.center" => "Center rectangle: click the centre, then a corner".into(),
-        "sketch.rectangle.rounded" => "Rounded rectangle: click two opposite corners (Tab to the radius box to type the corner radius)".into(),
-        "sketch.rectangle.three_point" => "3-point rectangle: click two points of one edge, then the width".into(),
-        "sketch.circle.center" => "Circle: click the centre, then a point on the circle".into(),
-        "sketch.arc.three_point" => "Arc: click start, end, then a point on the arc".into(),
-        "sketch.arc.center_point" => "Arc: click centre and start, then click end or type a signed sweep".into(),
-        "sketch.dimension" => "Dimension: pick one or two entities and type the value (or click to place it first); Enter applies".into(),
-        "sketch.constraint.horizontal_vertical" => "Horizontal/Vertical: pick a line or two points; hold Shift to pick a line midpoint".into(),
-        "sketch.slot.center_to_center" | "sketch.slot.overall" => "Slot: click both ends, then the width".into(),
-        "sketch.constraint.midpoint" => "MidPoint: pick a point and a line, or two lines to centre the second on the first".into(),
-        _ if id.starts_with("sketch.constraint.") => "Constraint: pick the sketch entities".into(),
-        _ => crate::sketch_tools::hint(id).unwrap_or_else(|| "Click in the sketch".into()),
+        "sketch.line" => crate::i18n::tr("ui.tool_line").into(),
+        "sketch.rectangle.two_point" => crate::i18n::tr("ui.tool_rectangle").into(),
+        "sketch.rectangle.center" => crate::i18n::tr("ui.tool_center_rectangle").into(),
+        "sketch.rectangle.rounded" => crate::i18n::tr("ui.tool_rounded_rectangle").into(),
+        "sketch.rectangle.three_point" => crate::i18n::tr("ui.tool_three_point_rectangle").into(),
+        "sketch.circle.center" => crate::i18n::tr("ui.tool_circle").into(),
+        "sketch.arc.three_point" => crate::i18n::tr("ui.tool_arc_three_point").into(),
+        "sketch.arc.center_point" => crate::i18n::tr("ui.tool_arc_center").into(),
+        "sketch.dimension" => crate::i18n::tr("ui.tool_dimension").into(),
+        "sketch.constraint.horizontal_vertical" => crate::i18n::tr("ui.tool_horizontal_vertical").into(),
+        "sketch.slot.center_to_center" | "sketch.slot.overall" => crate::i18n::tr("ui.tool_slot").into(),
+        "sketch.constraint.midpoint" => crate::i18n::tr("ui.tool_midpoint_constraint").into(),
+        _ if id.starts_with("sketch.constraint.") => crate::i18n::tr("ui.tool_constraint").into(),
+        _ => crate::sketch_tools::hint(id).unwrap_or_else(|| crate::i18n::tr("ui.tool_click_sketch").into()),
     }
+}
+
+/// Control-channel calls also need the selected language, outside the render scope.
+pub fn hint_for_language(language: &str, id: &str) -> String {
+    let _language = crate::i18n::scope(language);
+    hint(id)
 }
 
 fn arg(p: &(Vec2, Option<String>)) -> Value {
@@ -453,7 +459,7 @@ fn run_shape(app: &mut SolveApp, t: &Tool) -> Result<Vec<String>, String> {
             json!({"p0": xy(&p[0]), "p1": xy(&p[1]), "width": width})
         }
         "sketch.point" => json!({"point": xy(&p[0])}),
-        _ => return Err(format!("drawing {} is not supported", t.cmd)),
+        _ => return Err(crate::i18n::Locale::for_language(&app.preferences.language).format("ui.drawing_not_supported", &[("command", t.cmd)])),
     };
     let result = draw(app, t, params)?;
     Ok(result["curves"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_string)).collect())

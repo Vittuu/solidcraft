@@ -38,6 +38,15 @@
   <canvas id="solidcraft_canvas"></canvas>
   <div id="solidcraft_loading" role="status"><img src="loading-logo.svg" alt=""><span class="sr-only">Loading SolidCraft&hellip;</span></div>
   <script>
+    // Show the requested or cached language while the Rust application starts.
+    let loadingLanguage = new URLSearchParams(location.search).get("language");
+    if (!["en", "cs", "da", "de", "en-GB", "es", "fr", "gl", "hu", "id", "it", "ja", "ko", "ms", "nl", "pl", "pt-BR", "ro", "ru", "sv", "tr", "uk", "vi", "zh", "zh-TW"].includes(loadingLanguage)) {
+      try { loadingLanguage = localStorage.getItem("solidcraft-language"); } catch (_) {}
+    }
+    if (loadingLanguage === "pt-BR") {
+      document.documentElement.lang = "pt-BR";
+      document.getElementById("solidcraft_loading").textContent = "Carregando SolidCraft…";
+    }
     // Offline use and updates (sw.js; written into release builds by `cargo xtask web-offline`).
     if ("serviceWorker" in navigator) {
       addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

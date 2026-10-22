@@ -194,7 +194,8 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "screenshot",
             "Look at the design",
-            "Render the design and return it as a PNG image. Headless: a CPU render of the model, fitted to the view. \
+            "Render the design and return it as a PNG image. Headless: a render with the viewport's pipelines on a GPU device, fitted to the view. \
+             Under auto, the CPU rasterizer may be used instead; SOLIDCRAFT_GPU=cpu selects it explicitly. \
              Connected to the app: a screenshot of the window (source \"window\", the default) or a render of the model \
              with the app's camera (source \"model\"). Both show an active section (inspect.section) with its cut face \
              capped. `view` first turns the camera to a standard view or a saved named view (view.save), `camera` to              any camera (as view.apply). \

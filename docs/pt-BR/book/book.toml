@@ -1,0 +1,29 @@
+[book]
+title = "SolidCraft"
+description = "Aplicativo CAD 3D paramétrico de código aberto em Rust: guia do usuário e guia do desenvolvedor."
+authors = ["SolidCraft contributors"]
+language = "pt-BR"
+src = "src"
+
+[build]
+build-dir = "../../../target/book/pt-BR"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/bherbruck/solidcraft"
+edit-url-template = "https://github.com/bherbruck/solidcraft/edit/main/docs/pt-BR/book/{path}"
+site-url = "/solidcraft/pt-BR/"
+no-section-label = false
+
+[output.html.search]
+enable = true
+
+[output.html.redirect]
+"/dev/mcp.html" = "../guide/mcp.html"
+"/dev/docs/oracle.html" = "../oracle.html"
+"/dev/book/src/reference/commands.html" = "../../../../reference/commands.html"
+"/dev/book/src/guide/updates.html" = "../../../../guide/updates.html"
+"/dev/README.html" = "https://github.com/bherbruck/solidcraft/blob/main/docs/pt-BR/README.md"
+"/dev/ATTRIBUTION.html" = "https://github.com/bherbruck/solidcraft/blob/main/docs/pt-BR/ATTRIBUTION.md"
+"/dev/AGENTS.html" = "https://github.com/bherbruck/solidcraft/blob/main/docs/pt-BR/AGENTS.md"
+"/dev/ROADMAP.html" = "https://github.com/bherbruck/solidcraft/blob/main/docs/pt-BR/ROADMAP.md"

@@ -218,7 +218,7 @@ mod web {
     /// itself stays where it is.
     pub fn save_copy(files: &Rc<Files>, name: &str, bytes: Vec<u8>) {
         if !supported() {
-            if let Err(e) = crate::files::download(name, &bytes) {
+            if let Err(e) = crate::files::download(files.locale(), name, &bytes) {
                 files.say(format!("{name}: {e}"), true);
             }
             return;

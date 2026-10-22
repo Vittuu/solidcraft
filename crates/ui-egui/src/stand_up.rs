@@ -26,7 +26,9 @@ pub fn offer(app: &mut SolveApp, path: &str, before: &[String], result: Option<&
 
 /// Turn the offered bodies a quarter turn about X (Y up becomes Z up).
 pub fn stand_up(app: &mut SolveApp) -> Result<(), String> {
-    let Some(bodies) = app.stand_up.take() else { return Err("no file is waiting to be stood up".into()) };
+    let Some(bodies) = app.stand_up.take() else {
+        return Err(crate::i18n::Locale::for_language(&app.preferences.language).protocol_error("no file is waiting to be stood up"));
+    };
     match app.stand_up_occurrence.take() {
         // The import's component turns about its parent's origin, contents and all.
         Some(occurrence) => app.run("occurrence.move", json!({ "occurrence": occurrence, "axis": [1, 0, 0], "angle": "90 deg" })),

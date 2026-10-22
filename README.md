@@ -3,6 +3,7 @@
 </p>
 
 <h1 align="center">SolidCraft</h1>
+[Português (Brasil)](docs/pt-BR/README.md)
 
 <p align="center">
   <strong>An open-source parametric 3D CAD application built in pure Rust.</strong><br />

@@ -28,11 +28,11 @@ pub fn run(root: &Path, check: bool) -> Result<(), String> {
             println!("licences: {FILE} will change when this lands (the Generated files workflow rewrites it on main)");
             return Ok(());
         }
-        println!("licences: {FILE} is up to date");
+        humanln!("licences: {FILE} is up to date");
         return Ok(());
     }
     std::fs::write(&path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
-    println!("licences: wrote {FILE} ({} KB)", text.len() / 1024);
+    humanln!("licences: wrote {FILE} ({} KB)", text.len() / 1024);
     Ok(())
 }
 

@@ -108,34 +108,50 @@ impl BooleanDiagnostics {
     /// Why the result is not verified, when it ignores a place where the bodies seem to pass
     /// through each other ([`BooleanStrategy::UnverifiedShortcut`]).
     pub fn unverified(&self) -> Option<String> {
-        self.events.iter().find(|event| event.strategy == BooleanStrategy::UnverifiedShortcut).map(BooleanFallback::description)
+        self.unverified_with(str::to_string)
+    }
+
+    /// Render only the project's description of an unverified result. The callback
+    /// receives owned prose and numerical values, never a model name or vendor error.
+    pub fn unverified_with(&self, mut translate: impl FnMut(&str) -> String) -> Option<String> {
+        self.events.iter().find(|event| event.strategy == BooleanStrategy::UnverifiedShortcut).map(|event| translate(&event.description()))
     }
 
     /// Every retry the result took, for a message about the boolean (one that failed its
     /// checks lists what was tried).
     pub fn summary(&self) -> Option<String> {
-        self.described(&self.events.iter().collect::<Vec<_>>())
+        self.described_with(&self.events.iter().collect::<Vec<_>>(), str::to_string)
     }
 
     /// The note a feature carries: the retries that can make its result differ from the exact
     /// one ([`BooleanStrategy::alters_result`]). Exact retries are in `events` all the same
     /// (`timeline.inspect`), but they leave the result as it should be: no reason to warn.
     pub fn warning(&self) -> Option<String> {
-        self.described(&self.events.iter().filter(|e| e.strategy.alters_result()).collect::<Vec<_>>())
+        self.warning_with(str::to_string)
     }
 
-    fn described(&self, events: &[&BooleanFallback]) -> Option<String> {
+    /// Render each typed retry description before joining them. This boundary has
+    /// no arbitrary error strings to split: the enum and numbers generate all prose.
+    /// The literal outer template retains its one Rust-format token in translation.
+    pub fn warning_with(&self, translate: impl FnMut(&str) -> String) -> Option<String> {
+        self.described_with(&self.events.iter().filter(|event| event.strategy.alters_result()).collect::<Vec<_>>(), translate)
+    }
+
+    fn described_with(&self, events: &[&BooleanFallback], mut translate: impl FnMut(&str) -> String) -> Option<String> {
         if events.is_empty() && !self.truncated {
             return None;
         }
-        let mut descriptions: Vec<String> = events.iter().take(4).map(|e| e.description()).collect();
+        let mut descriptions: Vec<String> = events.iter().take(4).map(|event| translate(&event.description())).collect();
         if events.len() > 4 {
-            descriptions.push(format!("{} additional retries", events.len() - 4));
+            descriptions.push(translate(&format!("{} additional retries", events.len() - 4)));
         }
         if self.truncated {
-            descriptions.push(format!("report capped at {MAX_EVENTS} retries"));
+            descriptions.push(translate(&format!("report capped at {MAX_EVENTS} retries")));
         }
-        Some(format!("Boolean retry: {}", descriptions.join("; ")))
+        let source = "Boolean retry: {}";
+        let template = translate(source);
+        let template = if template.matches("{}").count() == 1 { template.as_str() } else { source };
+        Some(template.replacen("{}", &descriptions.join("; "), 1))
     }
 }
 
@@ -210,8 +226,89 @@ pub(crate) fn merge(report: BooleanDiagnostics) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_report_translates_its_owned_items_before_composing_them() {
+        let mut tolerance = BooleanFallback::new(BooleanStrategy::RefinedTolerance);
+        tolerance.tolerance_mm = 1e-7;
+        let mut nudge = BooleanFallback::new(BooleanStrategy::ToolNudge);
+        nudge.translation_mm = 1.25e-5;
+        nudge.rotation_rad = -1e-6;
+        let report = BooleanDiagnostics {
+            events: vec![
+                tolerance,
+                nudge,
+                BooleanFallback::new(BooleanStrategy::PlanarFallback),
+                BooleanFallback::new(BooleanStrategy::Piecewise),
+                BooleanFallback::new(BooleanStrategy::CommonBore),
+            ],
+            truncated: true,
+        };
+        let payload = serde_json::to_value(&report).unwrap();
+        let mut received = Vec::new();
+        let summary = report.described_with(&report.events.iter().collect::<Vec<_>>(), |text| {
+            received.push(text.to_string());
+            match text {
+                "Boolean retry: {}" => "Nova tentativa booleana: {}".into(),
+                "refined tolerance 1.000000e-7 mm" => "tolerância refinada 1.000000e-7 mm".into(),
+                "tool displacement 1.250000e-5 mm, rotation -1.000000e-6 rad" => {
+                    "deslocamento da ferramenta 1.250000e-5 mm, rotação -1.000000e-6 rad".into()
+                }
+                "exact planar fallback (no displacement)" => "alternativa plana exata (sem deslocamento)".into(),
+                "piecewise retry (no displacement)" => "nova tentativa por partes (sem deslocamento)".into(),
+                "1 additional retries" => "1 nova tentativa adicional".into(),
+                "report capped at 1024 retries" => "relatório limitado a 1024 novas tentativas".into(),
+                _ => panic!("unexpected presentation item: {text}"),
+            }
+        });
+        assert_eq!(
+            summary.as_deref(),
+            Some(
+                "Nova tentativa booleana: tolerância refinada 1.000000e-7 mm; deslocamento da ferramenta 1.250000e-5 mm, rotação -1.000000e-6 rad; alternativa plana exata (sem deslocamento); nova tentativa por partes (sem deslocamento); 1 nova tentativa adicional; relatório limitado a 1024 novas tentativas"
+            )
+        );
+        assert_eq!(received.len(), 7);
+        assert!(received.iter().all(|text| !text.contains("; ")));
+        assert_eq!(serde_json::to_value(&report).unwrap(), payload);
+        assert_eq!(serde_json::from_value::<BooleanDiagnostics>(payload.clone()).unwrap(), report);
+        assert_eq!(
+            report.summary().as_deref(),
+            Some(
+                "Boolean retry: refined tolerance 1.000000e-7 mm; tool displacement 1.250000e-5 mm, rotation -1.000000e-6 rad; exact planar fallback (no displacement); piecewise retry (no displacement); 1 additional retries; report capped at 1024 retries"
+            )
+        );
+        assert_eq!(
+            report
+                .warning_with(|text| match text {
+                    "Boolean retry: {}" => "Nova tentativa booleana: {}".into(),
+                    "tool displacement 1.250000e-5 mm, rotation -1.000000e-6 rad" => {
+                        "deslocamento da ferramenta 1.250000e-5 mm, rotação -1.000000e-6 rad".into()
+                    }
+                    "report capped at 1024 retries" => "relatório limitado a 1024 novas tentativas".into(),
+                    _ => panic!("exact retries must not enter the warning: {text}"),
+                })
+                .as_deref(),
+            Some(
+                "Nova tentativa booleana: deslocamento da ferramenta 1.250000e-5 mm, rotação -1.000000e-6 rad; relatório limitado a 1024 novas tentativas"
+            )
+        );
+        assert_eq!(serde_json::to_value(&report).unwrap(), payload);
+    }
+
+    #[test]
+    fn retry_report_does_not_drop_details_when_an_outer_template_is_invalid() {
+        let report = BooleanDiagnostics { events: vec![BooleanFallback::new(BooleanStrategy::ToolNudge)], truncated: false };
+        for template in ["translated label", "{} then {}"] {
+            let warning = report.warning_with(|text| {
+                if text == "Boolean retry: {}" { template.into() } else { "translated description with {literal} braces".into() }
+            });
+            assert_eq!(warning.as_deref(), Some("Boolean retry: translated description with {literal} braces"));
+        }
+        assert!(BooleanDiagnostics::default().warning_with(|_| panic!("empty report must not invoke presentation")).is_none());
+    }
 
     #[test]
     fn nested_attempts_are_committed_explicitly_and_do_not_leak() {
@@ -262,6 +359,7 @@ mod tests {
         };
         let exact = report(&[BooleanStrategy::ShiftedOperands, BooleanStrategy::GrownBoss, BooleanStrategy::CoplanarSeparation]);
         assert!(exact.warning().is_none(), "{exact:?}");
+        assert!(exact.warning_with(|text| panic!("exact retry must not invoke warning presentation: {text}")).is_none());
         assert!(exact.summary().is_some_and(|s| s.contains("shifted operands") && s.contains("boss grown")));
         let nudged = report(&[BooleanStrategy::GrownBoss, BooleanStrategy::ToolNudge]);
         let warning = nudged.warning().unwrap();

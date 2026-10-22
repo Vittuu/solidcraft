@@ -184,10 +184,14 @@ Either include the fix in the same PR, or mark the test `#[ignore = "fails until
 **Use the `ci` profile.** CI runs the tests with `--profile ci`: light optimisation, line tables,
 no LTO, and debug assertions off (truck has debug-only assertions that reject valid geometry). It
 builds several times faster than `--release`. If a test fails only in a plain debug build, say so
-in the PR. `cargo xtask test` builds the tests with it and then runs every test binary at once
-(`cargo test` runs them one after another); arguments after `--` go to each binary, e.g.
-`cargo xtask test -- shell`. Tests run beside each other on a busy machine, so a test must not
-depend on wall-clock timing.
+in the PR. `cargo xtask test` builds the tests with it and shares a bounded CPU budget between
+ordinary binaries, the ordinary engine tests and doc tests. After this shared work finishes,
+four engine regressions that measure time or process resources each run in their own isolated
+process, and the action matrix runs without competing tests. Their existing limits do not
+measure runner contention. Arguments after `--` go to each binary, e.g.
+`cargo xtask test -- shell`; with any such arguments, the whole engine suite runs serially in
+isolation so the requested filters and flags keep their exact meaning. Ordinary tests still
+run concurrently and must not depend on wall-clock timing.
 
 **Ready pull requests test what they touch.** CI maps changed files to workspace packages and
 runs Clippy, the test build and tests for those and their dependents. The
@@ -268,7 +272,7 @@ and a fresh CI run:
   and the Lists workflow) fails on an unsorted catalog or an id that appears twice.
 - **`mod` lines**: one per line, in the sorted group they belong to (`cargo fmt` keeps each group
   sorted). Add a new module into the existing group, not as a new group at the end.
-- **Languages** (`crates/ui-egui/src/i18n.rs`): one per line, English first, then by id (a test
+- **Languages** (`crates/engine/src/i18n.rs`, reexported by the UI): one per line, English first, then by id (a test
   checks it).
 - **Generated files**: `THIRD-PARTY-LICENSES.txt` and `docs/features.md` are rewritten on `main`
   after each merge by the Generated files workflow (`cargo xtask licences`, `cargo xtask

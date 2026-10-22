@@ -42,6 +42,12 @@ filter = "binary(action_matrix) & test(=action_matrix_sample)"
 threads-required = 12
 priority = 100
 
+# The thread-fillet regression checks a wall-time limit. Keep other test processes from
+# competing for its CPU budget, just as the local xtask runner isolates this case.
+[[profile.ci.overrides]]
+filter = "package(solidcraft-engine) & test(=thread_tests::fillet_beside_a_modelled_thread_finishes)"
+threads-required = "num-cpus"
+
 
 # The slowest tests start first, so a shard does not end with one of them running alone on a
 # core while the others sit idle (seed_81 alone takes about 20 minutes under CI load). Medians

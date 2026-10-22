@@ -162,15 +162,16 @@ pub fn trim_drag_end(app: &mut SolveApp) -> bool {
 
 /// Run an analysis and keep its result as a marker.
 fn analysis(app: &mut SolveApp, cmd: &str, p: Value) {
+    let _language = crate::i18n::scope(&app.preferences.language);
     let Ok(v) = app.run(cmd, p) else { return };
     let mark = match cmd {
-        "inspect.center_of_mass" => v3(&v["center"]).map(|c| (c, "Center of mass".to_string())),
+        "inspect.center_of_mass" => v3(&v["center"]).map(|c| (c, crate::i18n::tr_label("Center of mass").to_string())),
         _ => v3(&v["at"]).zip(v["min_radius"].as_f64()).map(|(c, r)| (c, format!("R min {}", crate::prefs::show_mm(app, r, 1)))),
     };
     if let Some(m) = mark {
         MARKS.with(|k| k.borrow_mut().push(m));
     } else if cmd == "inspect.minimum_radius" {
-        app.set_status("Minimum radius: it is straight (no curvature)", false);
+        app.set_status(crate::i18n::tr("ui.tool_radius_straight"), false);
     }
 }
 
@@ -266,6 +267,7 @@ fn marks(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
 /// Commands that start with a step of their own: Canvas and Decal ask for the image first,
 /// Edit Canvas opens the canvas panel. False when the command should not go on.
 pub fn start_hook(app: &mut SolveApp, id: &str) -> bool {
+    let _language = crate::i18n::scope(&app.preferences.language);
     if id == "sketch.edit_text"
         && let Some(dialog) = crate::dialogs::Dialog::for_command(app, id)
     {
@@ -286,7 +288,7 @@ pub fn start_hook(app: &mut SolveApp, id: &str) -> bool {
     if let Some(on) = same {
         let p = if on { json!({"clear": true}) } else { json!({}) };
         if app.run(id, p).is_ok() {
-            app.set_status(if on { "Analysis off" } else { "Analysis on (click it again to turn it off)" }, false);
+            app.set_status(if on { crate::i18n::tr("ui.tool_analysis_off") } else { crate::i18n::tr("ui.tool_analysis_on") }, false);
         }
         return false;
     }
@@ -604,42 +606,42 @@ pub fn tool_for(id: &str) -> Option<Tool> {
 pub fn hint(id: &str) -> Option<String> {
     Some(
         match id {
-            "sketch.project" => "Project: click edges, faces, vertices, other sketches' curves, axes or planes",
-            "sketch.intersect" => "Intersect: click faces or edges to cut with the sketch plane",
-            "sketch.include_3d" => "Include 3D Geometry: click edges or vertices",
-            "sketch.fit_curves_to_section" => "Fit Curves to Mesh Section: click a body",
-            "sketch.isoparametric_curve" => "Isoparametric Curve: click a point on a face (Shift: along)",
-            "inspect.curvature_comb" => "Curvature comb: click sketch curves or model edges",
-            "inspect.minimum_radius" => "Minimum radius: click sketch curves, edges or faces",
-            "inspect.center_of_mass" => "Center of mass of all bodies; click a body for its own",
-            "inspect.isocurve" => "Isocurves: click faces",
-            "inspect.continuity" => "Continuity: click an edge for its numbers (the button again turns the colours off)",
-            "canvas.insert" => "Canvas: click a plane or a planar face where the image's centre goes",
-            "canvas.decal" => "Decal: click a planar face where the image's centre goes",
+            "sketch.project" => crate::i18n::tr("ui.tool_project"),
+            "sketch.intersect" => crate::i18n::tr("ui.tool_intersect"),
+            "sketch.include_3d" => crate::i18n::tr("ui.tool_include_3d"),
+            "sketch.fit_curves_to_section" => crate::i18n::tr("ui.tool_fit_mesh_section"),
+            "sketch.isoparametric_curve" => crate::i18n::tr("ui.tool_isoparametric"),
+            "inspect.curvature_comb" => crate::i18n::tr("ui.tool_curvature_comb"),
+            "inspect.minimum_radius" => crate::i18n::tr("ui.tool_minimum_radius"),
+            "inspect.center_of_mass" => crate::i18n::tr("ui.tool_center_of_mass"),
+            "inspect.isocurve" => crate::i18n::tr("ui.tool_isocurves"),
+            "inspect.continuity" => crate::i18n::tr("ui.tool_continuity"),
+            "canvas.insert" => crate::i18n::tr("ui.tool_canvas"),
+            "canvas.decal" => crate::i18n::tr("ui.tool_decal"),
             "sketch.trim" => "Trim: click the piece of a curve to remove, or drag across the pieces to remove",
-            "sketch.extend" => "Extend: click a curve near the end to extend",
-            "sketch.break" => "Break: click a curve where it should split",
-            "sketch.line.midpoint" => "Midpoint line: click the middle, then an end",
-            "sketch.arc.tangent" => "Tangent arc: click the end of a line or arc, then the arc's end",
-            "sketch.ellipse" => "Ellipse: click the centre, the end of the major axis, then a point on it",
-            "sketch.conic" => "Conic: click the start, the end, then the apex; type Rho to shape it (0.5 is a parabola)",
-            "sketch.slot.center_point" => "Slot: click the centre, an arc centre, then the width",
-            "sketch.slot.arc_three_point" => "Arc slot: click start, a point on the arc, the end, then the width",
-            "sketch.slot.arc_center" => "Arc slot: click the centre, the start, the end, then the width",
-            "sketch.spline.fit_point" => "Spline: click fit points; click the start to close smoothly, or right-click to finish",
-            "sketch.spline.control_point" | "sketch.spline.control_point_5" => "Control point spline: click control points; right-click to finish",
-            "sketch.text" => "Text: click where the text starts",
-            "sketch.edit_text" => "Edit Text: click a letter interior or outline",
-            "sketch.blend_curve" => "Blend curve: click the ends of two curves",
-            "sketch.constraint.curvature" => "Curvature: click two curves that share an end",
+            "sketch.extend" => crate::i18n::tr("ui.tool_extend"),
+            "sketch.break" => crate::i18n::tr("ui.tool_break"),
+            "sketch.line.midpoint" => crate::i18n::tr("ui.tool_midpoint_line"),
+            "sketch.arc.tangent" => crate::i18n::tr("ui.tool_tangent_arc"),
+            "sketch.ellipse" => crate::i18n::tr("ui.tool_ellipse"),
+            "sketch.conic" => crate::i18n::tr("ui.tool_conic"),
+            "sketch.slot.center_point" => crate::i18n::tr("ui.tool_slot_center"),
+            "sketch.slot.arc_three_point" => crate::i18n::tr("ui.tool_arc_slot_three_point"),
+            "sketch.slot.arc_center" => crate::i18n::tr("ui.tool_arc_slot_center"),
+            "sketch.spline.fit_point" => crate::i18n::tr("ui.tool_fit_spline"),
+            "sketch.spline.control_point" | "sketch.spline.control_point_5" => crate::i18n::tr("ui.tool_control_spline"),
+            "sketch.text" => crate::i18n::tr("ui.tool_text"),
+            "sketch.edit_text" => crate::i18n::tr("ui.tool_edit_text"),
+            "sketch.blend_curve" => crate::i18n::tr("ui.tool_blend_curve"),
+            "sketch.constraint.curvature" => crate::i18n::tr("ui.tool_curvature"),
             "sketch.circle.two_tangent" => "2-tangent circle: click two curves (the circle goes between the two clicks)",
-            "sketch.circle.three_tangent" => "3-tangent circle: click three curves",
-            "sketch.constrainer" => "Constrain: click one or two entities; right-click to apply",
-            "sketch.constraint.polygon" => "Polygon: click the lines of a closed chain; right-click to apply",
-            "sketch.centerline" => "Centerline: click lines",
-            "sketch.project_to_surface" => "Project to surface: click curves of other sketches, right-click, then click the face",
-            "sketch.intersection_curve" => "Intersection curve: click two faces",
-            "sketch.spun_profile" => "Spun profile: click the body, then the axis line",
+            "sketch.circle.three_tangent" => crate::i18n::tr("ui.tool_three_tangent_circle"),
+            "sketch.constrainer" => crate::i18n::tr("ui.tool_constrain"),
+            "sketch.constraint.polygon" => crate::i18n::tr("ui.tool_polygon"),
+            "sketch.centerline" => crate::i18n::tr("ui.tool_centerline"),
+            "sketch.project_to_surface" => crate::i18n::tr("ui.tool_project_surface"),
+            "sketch.intersection_curve" => crate::i18n::tr("ui.tool_intersection_curve"),
+            "sketch.spun_profile" => crate::i18n::tr("ui.tool_spun_profile"),
             _ => return None,
         }
         .to_string(),
@@ -688,7 +690,7 @@ pub(crate) fn corner_curves(sk: &solidcraft_engine::sketch::Sketch, pi: usize, a
     if curves.len() > 2 {
         curves = candidates.filter(|(_, c)| !c.construction).take(3).collect();
     }
-    if curves.iter().any(|(_, c)| !matches!(c.kind, CurveKind::Line { .. }) && !(arcs_ok && matches!(c.kind, CurveKind::Arc { .. }))) {
+    if curves.iter().any(|(_, c)| !(matches!(c.kind, CurveKind::Line { .. }) || arcs_ok && matches!(c.kind, CurveKind::Arc { .. }))) {
         return None;
     }
     match curves[..] {
@@ -1331,10 +1333,11 @@ fn glyphs(app: &SolveApp, painter: &egui::Painter, proj: &Proj, hover: Option<Po
         && let Some(c) = ss.sketch.constraints.iter().find(|c| c.id == id)
     {
         let ids = glyph_group(&ss.sketch, &id).join(", ");
+        let name = crate::i18n::tr_label(c.kind.name());
         let label = if ss.report.redundant.contains(&id) {
-            format!("{} ({ids}), redundant: already implied by other constraints", c.kind.name())
+            crate::i18n::format("ui.constraint_redundant", &[("constraint", name), ("id", &ids)])
         } else {
-            format!("{} ({ids})", c.kind.name())
+            format!("{name} ({ids})")
         };
         let at = h + egui::vec2(12.0, 12.0);
         let g = painter.layout_no_wrap(label, egui::FontId::proportional(crate::theme::Tokens::get().font_small), tk.text);
@@ -1417,7 +1420,14 @@ fn snap_hint(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
     let Some(ss) = active_sketch(app).and_then(|s| st.sketch(s)) else { return };
     let Some(sp) = proj.to_screen(ss.plane.to_world(p)) else { return };
     let tk = crate::theme::Tokens::get();
-    let r = egui::Rect::from_min_size(sp + egui::vec2(12.0, -24.0), egui::vec2(24.0, 14.0));
+    let label = match label {
+        "Pt" => crate::i18n::tr("ui.snap_point"),
+        "Mid" => crate::i18n::tr("ui.snap_midpoint"),
+        "On" => crate::i18n::tr("ui.snap_on_curve"),
+        other => other,
+    };
+    let galley = painter.layout_no_wrap(label.to_string(), egui::FontId::proportional(tk.font_micro), tk.text);
+    let r = egui::Rect::from_min_size(sp + egui::vec2(12.0, -24.0), galley.size() + egui::vec2(8.0, 4.0));
     painter.rect_filled(r, 3.0, tk.accent_soft);
     painter.text(r.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(crate::theme::Tokens::get().font_micro), tk.text);
 }

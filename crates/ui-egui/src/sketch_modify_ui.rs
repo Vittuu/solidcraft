@@ -538,7 +538,7 @@ fn curve_ids(inputs: &[SelInput], i: usize) -> Vec<String> {
 /// parameters, in the range the command accepts. Checking the range here lets the window say
 /// so in its own error line instead of the status bar.
 fn factor(app: &SolveApp, text: &str) -> Result<f64, String> {
-    let v = app.session.doc.eval(text.trim(), ValueKind::Unitless).map_err(|e| format!("Factor: {e}"))?;
+    let v = app.session.doc.eval(text.trim(), ValueKind::Unitless).map_err(|e| format!("{}: {e}", app.tr_label("Factor")))?;
     if !(v.is_finite() && v > 1e-9 && v < 1e6) {
         return Err("Factor must be a positive number".into());
     }
@@ -554,9 +554,9 @@ fn value(app: &SolveApp, text: &str, kind: ValueKind, label: &str) -> Result<f64
         return Ok(0.0);
     }
     let doc = &app.session.doc;
-    let v = doc.eval(&doc.with_design_unit(text, kind), kind).map_err(|e| format!("{label}: {e}"))?;
+    let v = doc.eval(&doc.with_design_unit(text, kind), kind).map_err(|e| format!("{}: {e}", app.tr_label(label)))?;
     if !v.is_finite() {
-        return Err(format!("{label} must be a number"));
+        return Err(app.tr_format("error.number", &[("label", app.tr_label(label))]));
     }
     Ok(v)
 }
@@ -566,9 +566,10 @@ fn value(app: &SolveApp, text: &str, kind: ValueKind, label: &str) -> Result<f64
 /// as a typed sketch value does everywhere else.
 fn signed_length(app: &SolveApp, label: &str, text: &str, flip: bool) -> Result<f64, String> {
     let doc = &app.session.doc;
-    let v = doc.eval(&doc.with_design_unit(text.trim(), ValueKind::Length), ValueKind::Length).map_err(|e| format!("{label}: {e}"))?;
+    let v =
+        doc.eval(&doc.with_design_unit(text.trim(), ValueKind::Length), ValueKind::Length).map_err(|e| format!("{}: {e}", app.tr_label(label)))?;
     if !v.is_finite() || v.abs() <= 1e-9 {
-        return Err(format!("{label} must be a non-zero number"));
+        return Err(app.tr_format("error.nonzero", &[("label", app.tr_label(label))]));
     }
     Ok(if flip { -v } else { v })
 }
@@ -582,9 +583,9 @@ fn signed_length(app: &SolveApp, label: &str, text: &str, flip: bool) -> Result<
 /// upstream #218 reports for `solid.pattern.circular`'s axis origin. The window therefore
 /// evaluates every value here and sends numbers.
 fn whole(app: &SolveApp, label: &str, text: &str) -> Result<u64, String> {
-    let v = app.session.doc.eval(text.trim(), ValueKind::Unitless).map_err(|e| format!("{label}: {e}"))?;
+    let v = app.session.doc.eval(text.trim(), ValueKind::Unitless).map_err(|e| format!("{}: {e}", app.tr_label(label)))?;
     if !v.is_finite() || !(1.0..=MAX_COPIES).contains(&v) || (v - v.round()).abs() > 1e-9 {
-        return Err(format!("{label} must be a whole number from 1 to {MAX_COPIES:.0}"));
+        return Err(app.tr_format("error.whole_range", &[("label", app.tr_label(label)), ("maximum", &format!("{MAX_COPIES:.0}"))]));
     }
     Ok(v.round() as u64)
 }
@@ -594,9 +595,10 @@ fn whole(app: &SolveApp, label: &str, text: &str) -> Result<u64, String> {
 /// zero, which a Move window wants and a pattern spacing does not.
 fn length(app: &SolveApp, label: &str, text: &str) -> Result<f64, String> {
     let doc = &app.session.doc;
-    let v = doc.eval(&doc.with_design_unit(text.trim(), ValueKind::Length), ValueKind::Length).map_err(|e| format!("{label}: {e}"))?;
+    let v =
+        doc.eval(&doc.with_design_unit(text.trim(), ValueKind::Length), ValueKind::Length).map_err(|e| format!("{}: {e}", app.tr_label(label)))?;
     if !v.is_finite() {
-        return Err(format!("{label} must be a number"));
+        return Err(app.tr_format("error.number", &[("label", app.tr_label(label))]));
     }
     Ok(v)
 }
@@ -623,9 +625,9 @@ fn corner_ids(app: &SolveApp, inputs: &[SelInput], i: usize) -> Vec<String> {
 /// a radius or a chamfer leg, so this one is its own.
 fn corner_size(app: &SolveApp, label: &str, text: &str, kind: ValueKind) -> Result<f64, String> {
     let doc = &app.session.doc;
-    let v = doc.eval(&doc.with_design_unit(text.trim(), kind), kind).map_err(|e| format!("{label}: {e}"))?;
+    let v = doc.eval(&doc.with_design_unit(text.trim(), kind), kind).map_err(|e| format!("{}: {e}", app.tr_label(label)))?;
     if !v.is_finite() || v <= 1e-9 {
-        return Err(format!("{label} must be a positive number"));
+        return Err(app.tr_format("error.positive", &[("label", app.tr_label(label))]));
     }
     Ok(v)
 }
@@ -651,9 +653,9 @@ fn corner_ref(app: &SolveApp, point: &str, flip: bool) -> Result<Value, String> 
 /// typed angle does everywhere else. `sketch.pattern.circular` takes the full turn as 360 and
 /// refuses anything outside that range.
 fn total_angle(app: &SolveApp, label: &str, text: &str) -> Result<f64, String> {
-    let v = app.session.doc.eval(text.trim(), ValueKind::Angle).map_err(|e| format!("{label}: {e}"))?.to_degrees();
+    let v = app.session.doc.eval(text.trim(), ValueKind::Angle).map_err(|e| format!("{}: {e}", app.tr_label(label)))?.to_degrees();
     if !v.is_finite() || v.abs() <= 1e-9 || v.abs() > 360.0 {
-        return Err(format!("{label} must be more than 0 and at most 360 degrees"));
+        return Err(app.tr_format("error.angle_range", &[("label", app.tr_label(label))]));
     }
     Ok(v)
 }
@@ -752,7 +754,7 @@ pub fn commands(app: &SolveApp, k: &Mod, inputs: &[SelInput], extra: &Map<String
                 return Err("Spacing 2 must be a non-zero number".into());
             }
             if n1.saturating_mul(n2) > MAX_COPIES as u64 {
-                return Err(format!("Quantity and Quantity 2 together must make at most {MAX_COPIES:.0} instances"));
+                return Err(app.tr_format("sketch_modify.pattern_instance_limit", &[("maximum", &format!("{MAX_COPIES:.0}"))]));
             }
             let mut p = json!({"entities": entities, "count": n1, "spacing": s1, "count2": n2, "spacing2": s2, "alignment": alignment, "alignment2": alignment2, "reversed": reversed, "reversed2": reversed2});
             // A picked direction that has no component in the sketch plane is reported rather

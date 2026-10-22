@@ -87,6 +87,7 @@ def read_paths(src):
 
 def select(meta, paths):
     """Return (full, sorted package names)."""
+    # Cargo metadata uses native separators; changed paths from git diff use '/'.
     root = meta["workspace_root"].replace("\\", "/").rstrip("/") + "/"
     pkgs = {}
     for p in meta["packages"]:

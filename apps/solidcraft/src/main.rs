@@ -32,6 +32,7 @@ mod startup;
 mod window_fit;
 
 use solidcraft_engine::{Session, io};
+use solidcraft_ui_egui::i18n::tr_label;
 use solidcraft_ui_egui::{Services, SolveApp};
 
 /// Windows: put the restored window back inside the monitor's work area if it is out of reach
@@ -160,7 +161,8 @@ impl eframe::App for App {
                 command.creation_flags(0x0000_0200 | if hidden_shell { 0x0800_0000 } else { 0x0000_0008 });
             }
             if let Err(e) = command.spawn() {
-                log::error!("update: starting {}: {e}", program.display());
+                let locale = solidcraft_engine::i18n::Locale::for_language(&self.solve.preferences.language);
+                log::error!("{}", locale.protocol_error(&format!("update: starting {}: {e}", program.display())));
             }
         }
     }
@@ -182,7 +184,7 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
             }
             let future = dialog
                 .add_filter(
-                    "Designs, CAD files and meshes",
+                    tr_label("Designs, CAD files and meshes"),
                     &[
                         io::DESIGN_EXT,
                         io::LEGACY_DESIGN_EXT,
@@ -211,13 +213,13 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
                         "GLTF",
                     ],
                 )
-                .add_filter("SolidCraft design (container or JSON)", &[io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])
+                .add_filter(tr_label("SolidCraft design (container or JSON)"), &[io::DESIGN_EXT, io::LEGACY_DESIGN_EXT, "json"])
                 .add_filter("STEP", &["step", "stp", "STEP", "STP"])
                 .add_filter("IGES", &["igs", "iges", "IGS", "IGES"])
-                .add_filter("FreeCAD and Rhino", &["FCStd", "fcstd", "3dm", "3DM"])
-                .add_filter("Mesh (3MF, STL, OBJ, glTF)", &["3mf", "3MF", "stl", "STL", "obj", "OBJ", "glb", "GLB", "gltf", "GLTF"])
-                .add_filter("Sketch drawings (DXF, SVG)", &["dxf", "DXF", "svg", "SVG"])
-                .add_filter("All files", &["*"])
+                .add_filter(tr_label("FreeCAD and Rhino"), &["FCStd", "fcstd", "3dm", "3DM"])
+                .add_filter(tr_label("Mesh (3MF, STL, OBJ, glTF)"), &["3mf", "3MF", "stl", "STL", "obj", "OBJ", "glb", "GLB", "gltf", "GLTF"])
+                .add_filter(tr_label("Sketch drawings (DXF, SVG)"), &["dxf", "DXF", "svg", "SVG"])
+                .add_filter(tr_label("All files"), &["*"])
                 .pick_file();
             Box::pin(async move { future.await.map(|p| p.path().to_string_lossy().into_owned()) })
         })),
@@ -238,8 +240,8 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
             Box::pin(async move { future.await.map(|p| p.path().to_string_lossy().into_owned()) })
         })),
         pick_program: Some(Box::new(move || {
-            let dialog = program_parent.clone().set_title("Choose your slicer");
-            let dialog = if cfg!(target_os = "windows") { dialog.add_filter("Programs", &["exe"]) } else { dialog };
+            let dialog = program_parent.clone().set_title(tr_label("Choose your slicer"));
+            let dialog = if cfg!(target_os = "windows") { dialog.add_filter(tr_label("Programs"), &["exe"]) } else { dialog };
             let future = dialog.pick_file();
             Box::pin(async move { future.await.map(|p| p.path().to_string_lossy().into_owned()) })
         })),
@@ -247,12 +249,12 @@ fn services(cc: &eframe::CreationContext<'_>) -> Services {
             let dialog = parent.clone().set_file_name(name);
             let dialog = if exts == [io::DESIGN_EXT, "json"] {
                 if name.ends_with(".json") {
-                    dialog.add_filter("Plain JSON design", &["json"]).add_filter("SolidCraft container", &[io::DESIGN_EXT])
+                    dialog.add_filter(tr_label("Plain JSON design"), &["json"]).add_filter(tr_label("SolidCraft container"), &[io::DESIGN_EXT])
                 } else {
-                    dialog.add_filter("SolidCraft container", &[io::DESIGN_EXT]).add_filter("Plain JSON design", &["json"])
+                    dialog.add_filter(tr_label("SolidCraft container"), &[io::DESIGN_EXT]).add_filter(tr_label("Plain JSON design"), &["json"])
                 }
             } else {
-                dialog.add_filter("File", exts)
+                dialog.add_filter(tr_label("File"), exts)
             };
             let future = dialog.save_file();
             Box::pin(async move { future.await.map(|p| p.path().to_string_lossy().into_owned()) })
@@ -431,6 +433,15 @@ fn settings_dir() -> Option<std::path::PathBuf> {
     eframe::storage_dir("SolidCraft")
 }
 
+/// Startup notices need the saved UI language before eframe has created its storage handle.
+fn saved_language() -> Option<String> {
+    let text = std::fs::read_to_string(settings_dir()?.join("app.ron")).ok()?;
+    let settings: std::collections::HashMap<String, String> = ron::from_str(&text).ok()?;
+    let preferences = solidcraft_ui_egui::prefs::stored(|key| settings.get(key).cloned())?;
+    let preferences: serde_json::Value = serde_json::from_str(&preferences).ok()?;
+    preferences.get("language")?.as_str().filter(|id| solidcraft_engine::i18n::is_supported(id)).map(str::to_string)
+}
+
 /// The anti-aliasing preference, kept next to eframe's storage (it is needed before the
 /// window opens).
 fn graphics_path() -> Option<std::path::PathBuf> {
@@ -443,12 +454,12 @@ fn graphics_path() -> Option<std::path::PathBuf> {
 /// window's old app id. In the Flatpak sandbox, releases before 0.8 kept everything under the
 /// old app id's `~/.var/app` folder; that copy comes first, as it is the newest. The old folders
 /// are never changed.
-fn adopt_legacy_settings() {
+fn adopt_legacy_settings(locale: solidcraft_engine::i18n::Locale) {
     let (Some(current), Some(legacy)) = (settings_dir(), eframe::storage_dir("SolveCraft")) else { return };
     let legacy_eframe = eframe::storage_dir(solidcraft_engine::io::LEGACY_APP_ID);
     let old_flatpak = solidcraft_engine::io::legacy_flatpak_path(&current);
     if let Err(e) = adopt_settings(&current, old_flatpak.as_deref(), &legacy, legacy_eframe.as_deref()) {
-        log::warn!("settings: could not copy the previous release's settings into {}: {e}", current.display());
+        log::warn!("{}", locale.protocol_error(&format!("settings: could not copy the previous release's settings into {}: {e}", current.display())));
     }
 }
 
@@ -528,14 +539,43 @@ fn app_viewport() -> Result<egui::ViewportBuilder, eframe::Error> {
 /// The window's app id: it names the desktop entry, so it is the packages' reverse-DNS id.
 const APP_ID: &str = solidcraft_engine::io::APP_ID;
 
+fn launch_language(args: &mut Vec<String>) -> Result<Option<String>, String> {
+    let mut language = solidcraft_engine::geom::env::var("LANGUAGE");
+    let mut remaining = Vec::new();
+    let mut incoming = std::mem::take(args).into_iter();
+    while let Some(arg) = incoming.next() {
+        if arg == "--language" {
+            language = Some(incoming.next().ok_or("--language needs a locale ID")?);
+        } else {
+            let takes_value = arg == "--control";
+            remaining.push(arg);
+            if takes_value && let Some(value) = incoming.next() {
+                remaining.push(value);
+            }
+        }
+    }
+    *args = remaining;
+    if let Some(id) = &language
+        && !solidcraft_engine::i18n::is_supported(id)
+    {
+        return Err(format!("unsupported language `{id}`"));
+    }
+    Ok(language)
+}
+
 fn main() -> eframe::Result {
     mark("main");
-    adopt_legacy_settings();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let language = launch_language(&mut args)
+        .map_err(|message| eframe::Error::AppCreation(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, message))))?;
+    adopt_legacy_settings(solidcraft_engine::i18n::Locale::for_language(language.as_deref().unwrap_or("en")));
+    let saved_language = language.is_none().then(saved_language).flatten();
+    let locale = solidcraft_engine::i18n::Locale::for_language(language.as_deref().or(saved_language.as_deref()).unwrap_or("en"));
     let mut safe_mode = startup::env_on(std::env::var(startup::SAFE_MODE_ENV).ok().as_deref());
     let mut control_port: Option<u16> = solidcraft_engine::geom::env::var("CONTROL_PORT").and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
-    let mut args = std::env::args().skip(1);
+    let mut args = args.into_iter();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--control" => control_port = args.next().and_then(|p| p.parse().ok()),
@@ -548,18 +588,23 @@ fn main() -> eframe::Result {
             "--crash-log" => {
                 match solidcraft_engine::crash::default_dir() {
                     Some(dir) => {
-                        println!("crash reports: {}", dir.display());
+                        println!("{}", locale.protocol_error(&format!("crash reports: {}", dir.display())));
                         for r in solidcraft_engine::crash::list(&dir).iter().take(5) {
-                            println!("  {}  {}  {}", r.id, r.kind, r.message);
+                            println!("  {}  {}  {}", r.id, r.kind, locale.protocol_error(&r.message));
                         }
-                        println!("more: solidcraft-cli crashes");
+                        println!("{}", locale.protocol_error("more: solidcraft-cli crashes"));
                     }
-                    None => println!("no crash folder on this system"),
+                    None => println!("{}", locale.protocol_error("no crash folder on this system")),
                 }
                 return Ok(());
             }
             "--help" | "-h" => {
-                println!("usage: solidcraft [--control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]");
+                println!(
+                    "{}",
+                    locale.protocol_label(
+                        "usage: solidcraft [--language LOCALE] [--control PORT] [--sample] [--crash-log] [--safe-mode] [design.solidcraft | part.step]"
+                    )
+                );
                 return Ok(());
             }
             _ => files.push(a),
@@ -571,16 +616,16 @@ fn main() -> eframe::Result {
     let mut notes: Vec<String> = Vec::new();
     let mut failed_starts = 0;
     if let Some(dir) = &settings {
-        notes.extend(startup::check_settings(dir, &[solidcraft_ui_egui::prefs::STORAGE_KEY, solidcraft_ui_egui::prefs::LEGACY_STORAGE_KEY]));
+        notes.extend(startup::check_settings(dir, &[solidcraft_ui_egui::prefs::STORAGE_KEY, solidcraft_ui_egui::prefs::LEGACY_STORAGE_KEY], locale));
         failed_starts = startup::begin(dir);
     }
     if failed_starts >= startup::FAILED_STARTS_FOR_SAFE_MODE && !safe_mode {
         safe_mode = true;
-        notes.push(format!("The last {failed_starts} launches stopped before the window opened, so this one is in safe mode."));
+        notes.push(locale.format("startup.failed_starts", &[("count", &failed_starts.to_string())]));
     }
     let cpu_renderer = safe_mode || startup::cpu_renderer_env(std::env::var(startup::RENDERER_ENV).ok().as_deref());
     if safe_mode {
-        notes.push("Safe mode: default settings (yours are kept for the next normal start), no recovery offer, software rendering.".into());
+        notes.push(locale.text("startup.safe_mode").into());
     }
     let samples = if safe_mode { MSAA } else { msaa() };
     let wgpu_options = wgpu_options(cpu_renderer, if safe_mode { None } else { backend_preference() }.as_deref());
@@ -668,6 +713,9 @@ fn main() -> eframe::Result {
             if let Some(p) = cc.storage.and_then(|s| solidcraft_ui_egui::prefs::stored(|k| s.get_string(k))).filter(|_| !safe_mode) {
                 app.load_prefs(&p);
             }
+            if let Some(language) = &language {
+                app.preferences.language = language.clone();
+            }
             mark("app state and prefs");
             if let Some(rs) = &cc.wgpu_render_state {
                 eprintln!("SolidCraft graphics: {:?}, MSAA {}x (requested {}x)", rs.adapter.get_info().backend, rs.msaa_samples, samples);
@@ -738,7 +786,7 @@ fn main() -> eframe::Result {
                 app.set_status(notes.join(" "), true);
             }
             #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-            let space_mouse = space_mouse::SpaceMouse::start(&cc.egui_ctx);
+            let space_mouse = space_mouse::SpaceMouse::start(&cc.egui_ctx, solidcraft_engine::i18n::Locale::for_language(&app.preferences.language));
             mark("app created");
             solidcraft_engine::crash::phase("first frame");
             Ok(Box::new(App {
@@ -753,7 +801,7 @@ fn main() -> eframe::Result {
     );
     control_server::remove_token_file();
     match result {
-        Err(e) if !created.load(std::sync::atomic::Ordering::SeqCst) => no_window(e, cpu_renderer, settings.as_deref()),
+        Err(e) if !created.load(std::sync::atomic::Ordering::SeqCst) => no_window(e, cpu_renderer, settings.as_deref(), locale),
         r => r,
     }
 }
@@ -794,7 +842,7 @@ fn wgpu_options(cpu: bool, preference: Option<&str>) -> eframe::egui_wgpu::WgpuC
 
 /// The window never opened (no graphics adapter, a device that wouldn't start): once more on
 /// the software renderer, else a message box saying what failed instead of a silent exit.
-fn no_window(error: eframe::Error, tried_cpu: bool, settings: Option<&std::path::Path>) -> eframe::Result {
+fn no_window(error: eframe::Error, tried_cpu: bool, settings: Option<&std::path::Path>, locale: solidcraft_engine::i18n::Locale) -> eframe::Result {
     log::error!("the window could not open: {error}");
     eprintln!("SolidCraft: the window could not open: {error}");
     if !tried_cpu && let Ok(exe) = std::env::current_exe() {
@@ -808,8 +856,8 @@ fn no_window(error: eframe::Error, tried_cpu: bool, settings: Option<&std::path:
     }
     let _ = rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Error)
-        .set_title("SolidCraft could not start")
-        .set_description(startup::no_window_message(&error.to_string(), settings))
+        .set_title(locale.text("startup.failed_title"))
+        .set_description(startup::no_window_message(&error.to_string(), settings, locale))
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
     Err(error)
@@ -908,5 +956,14 @@ mod msaa_tests {
                 assert_eq!(eframe::egui_wgpu::effective_msaa_samples(backend, requested), requested);
             }
         }
+    }
+
+    #[test]
+    fn launch_locale_does_not_turn_options_or_files_into_design_inputs() {
+        let mut args = ["--control", "12345", "--help", "--language", "pt-BR", "peça.step"].map(str::to_string).to_vec();
+        assert_eq!(super::launch_language(&mut args).unwrap().as_deref(), Some("pt-BR"));
+        assert_eq!(args, ["--control", "12345", "--help", "peça.step"]);
+        assert!(super::launch_language(&mut vec!["--language".into()]).is_err());
+        assert!(super::launch_language(&mut vec!["--language".into(), "not-a-locale".into()]).is_err());
     }
 }

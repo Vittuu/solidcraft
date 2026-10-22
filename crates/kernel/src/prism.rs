@@ -1755,6 +1755,164 @@ fn simple_loops(lp: Loop2, tags: Vec<Tag>, near: f64) -> Vec<(Loop2, Vec<Tag>)> 
     out
 }
 
+/// Endpoint identity before parameter inversion. Unknown vertices use their exact event point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum SectionEnd {
+    Vertex(usize, usize),
+    Event([u64; 2]),
+}
+
+fn point_bits(p: Vec2) -> Option<[u64; 2]> {
+    let bits = |x: f64| x.is_finite().then(|| if x == 0. { 0 } else { x.to_bits() });
+    Some([bits(p.x)?, bits(p.y)?])
+}
+
+fn section_end(tag: Tag, first: bool, point: Vec2) -> Option<SectionEnd> {
+    let bits = point_bits(point)?;
+    Some(match if first { tag.start } else { tag.end } {
+        Some(vertex) => SectionEnd::Vertex(tag.operand, vertex),
+        None => SectionEnd::Event(bits),
+    })
+}
+
+/// Exact oriented circle; unsupported winding or non-finite data have no reusable identity.
+fn circle_key(seg: &Seg2) -> Option<[u64; 4]> {
+    let Seg2::Arc { center, radius, start, sweep } = *seg else { return None };
+    if !radius.is_finite()
+        || radius <= 0.
+        || !start.is_finite()
+        || !sweep.is_finite()
+        || sweep == 0.
+        || sweep.abs() > std::f64::consts::TAU
+        || !(start + sweep).is_finite()
+    {
+        return None;
+    }
+    let [x, y] = point_bits(center)?;
+    Some([x, y, radius.to_bits(), u64::from(sweep < 0.)])
+}
+
+type SharedArcs = std::collections::BTreeMap<([u64; 4], SectionEnd, SectionEnd), Option<Seg2>>;
+
+/// A station retains the same minimum parameter as Vec::dedup_by, plus the discarded identities.
+struct SplitStation {
+    t: f64,
+    ends: std::collections::BTreeSet<SectionEnd>,
+}
+
+fn group_stations(mut points: Vec<(f64, SectionEnd)>) -> Vec<SplitStation> {
+    points.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let mut stations: Vec<SplitStation> = Vec::new();
+    for (t, endpoint) in points {
+        if let Some(last) = stations.last_mut()
+            && (t - last.t).abs() < 1e-9
+        {
+            last.ends.insert(endpoint);
+        } else {
+            stations.push(SplitStation { t, ends: [endpoint].into_iter().collect() });
+        }
+    }
+    stations
+}
+
+/// Endpoint identity alone cannot distinguish major/minor or a full turn from a tiny arc.
+/// The declared subpiece must occupy the requested directed interval in the parent's frame.
+fn occupies_stations(parent: &Seg2, child: &Seg2, first: f64, end: f64) -> bool {
+    let (Seg2::Arc { start: p, sweep: ps, .. }, Seg2::Arc { start: c, sweep: cs, .. }) = (*parent, *child) else { return false };
+    let (Some(child_start), Some(child_end)) = (point_bits(child.start()), point_bits(child.end())) else { return false };
+    if circle_key(parent) != circle_key(child)
+        || circle_key(parent).is_none()
+        || cs.abs() >= std::f64::consts::TAU
+        || child_start == child_end
+        || !(first >= 0. && first < end && end <= 1.)
+    {
+        return false;
+    }
+    let (a, b) = ((c - p) / ps, ((c + cs) - p) / ps);
+    // Adding a small sweep to a huge angle can erase it. Verify the span independently,
+    // using only the sum of the SAME two station uncertainties, not a new geometric tolerance.
+    let span = cs / ps;
+    let uncertainty = if first == 0. { 0. } else { 1e-9 } + if end == 1. { 0. } else { 1e-9 };
+    let span_matches = if uncertainty == 0. { span == end - first } else { (span - (end - first)).abs() < uncertainty };
+    a.is_finite()
+        && b.is_finite()
+        && span.is_finite()
+        && span > 0.
+        && span_matches
+        && a >= 0.
+        && b <= 1.
+        && a < b
+        && if first == 0. { c == p } else { (a - first).abs() < 1e-9 }
+        && if end == 1. { c + cs == p + ps } else { (b - end).abs() < 1e-9 }
+}
+
+fn shared_arc(parent: &Seg2, first: &SplitStation, end: &SplitStation, arcs: &SharedArcs, remaining_alias_work: &mut usize) -> Option<Seg2> {
+    let circle = circle_key(parent)?;
+    // Reserve the entire cross-product before searching against one budget for this sewn block.
+    // An unaffordable or ambiguous reuse keeps the original reconstructed piece.
+    let cost = first.ends.len().checked_mul(end.ends.len())?;
+    *remaining_alias_work = remaining_alias_work.checked_sub(cost)?;
+    let mut found = None;
+    for a in &first.ends {
+        for b in &end.ends {
+            match arcs.get(&(circle, *a, *b)) {
+                Some(None) => return None,
+                Some(Some(child)) if occupies_stations(parent, child, first.t, end.t) => {
+                    if found.is_some_and(|prior| prior != *child) {
+                        return None;
+                    }
+                    found = Some(*child);
+                }
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+fn shared_arc_pieces(
+    seg: &Seg2,
+    tag: Tag,
+    points: &[(Vec2, SectionEnd)],
+    tol: f64,
+    arcs: &SharedArcs,
+    remaining_alias_work: &mut usize,
+) -> Option<Vec<Seg2>> {
+    let Seg2::Arc { center, radius, start, sweep } = *seg else { return None };
+    let mut stations = group_stations(
+        points
+            .iter()
+            .filter_map(|(p, identity)| {
+                // Keep the same split filters and representative parameter as split_seg.
+                if (p.dist(center) - radius).abs() >= tol {
+                    return None;
+                }
+                if p.dist(seg.start()) < tol || p.dist(seg.end()) < tol {
+                    return None;
+                }
+                let t = seg.closest_param(*p);
+                (t > 1e-9 && t < 1. - 1e-9 && seg.point_at(t).dist(*p) < tol).then_some((t, *identity))
+            })
+            .collect(),
+    );
+    stations.insert(0, SplitStation { t: 0., ends: [section_end(tag, true, seg.start())?].into_iter().collect() });
+    stations.push(SplitStation { t: 1., ends: [section_end(tag, false, seg.end())?].into_iter().collect() });
+    Some(
+        stations
+            .windows(2)
+            .filter_map(|w| {
+                let (a, b) = (w.first()?, w.get(1)?);
+                Some(shared_arc(seg, a, b, arcs, remaining_alias_work).unwrap_or(Seg2::Arc {
+                    center,
+                    radius,
+                    start: start + sweep * a.t,
+                    sweep: sweep * (b.t - a.t),
+                }))
+            })
+            .collect(),
+    )
+}
+
 fn split_seg(seg: &Seg2, pts: &[Vec2], tol: f64) -> Option<Vec<Seg2>> {
     let mut ts: Vec<f64> = pts
         .iter()
@@ -2001,6 +2159,33 @@ fn sew_connected_sections(
             ends.push(u);
         }
     }
+
+    // Only declared slab arcs are reusable. Cap differences contribute event identities, not curves.
+    let mut arcs = SharedArcs::new();
+    let mut shared_points = Vec::new();
+    if coalesce {
+        for (section, declared) in slabs.iter().map(|s| (s, true)).chain(caps.iter().map(|c| (&c.2, false))) {
+            for (r, reg) in section.regions.iter().enumerate() {
+                for (l, lp) in std::iter::once(&reg.outer).chain(&reg.holes).enumerate() {
+                    for (s, segment) in lp.segs.iter().enumerate() {
+                        let tag = section.tag(r, l, s);
+                        let (a, b) = (section_end(tag, true, segment.start())?, section_end(tag, false, segment.end())?);
+                        shared_points.extend([(segment.start(), a), (segment.end(), b)]);
+                        if declared && let Some(circle) = circle_key(segment) {
+                            let key = (circle, a, b);
+                            arcs.entry(key)
+                                .and_modify(|old| {
+                                    if old.is_some_and(|prior| prior != *segment) {
+                                        *old = None;
+                                    }
+                                })
+                                .or_insert(Some(*segment));
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Welding above keeps its original encounter order. Side splitting needs
     // only the distinct stations, whose resulting parameters are sorted anyway.
     // Deduplicate in place, with bounded sorting work and no extra point list.
@@ -2081,14 +2266,20 @@ fn sew_connected_sections(
     let mut runs: Vec<Run> = Vec::new();
     let mut last = std::collections::BTreeMap::new();
     let mut remaining = MAX_PLANAR_SEGMENTS * 2;
+    let mut remaining_alias_work = MAX_PLANAR_EVENTS;
     for (i, slab) in slabs.iter().enumerate() {
         for (r, reg) in slab.regions.iter().enumerate() {
             for (l, lp) in std::iter::once(&reg.outer).chain(&reg.holes).enumerate() {
                 // The loop's walls in order: the run each joins, its tag and where it ends.
                 let mut around: Vec<(usize, Tag, Vec2)> = Vec::new();
                 for (si, sg0) in lp.segs.iter().enumerate() {
-                    let pieces = split_seg(sg0, &pts, tol)?;
-                    let (n, tag) = (pieces.len(), slab.tag(r, l, si));
+                    let tag = slab.tag(r, l, si);
+                    let pieces = if coalesce && circle_key(sg0).is_some() {
+                        shared_arc_pieces(sg0, tag, &shared_points, tol, &arcs, &mut remaining_alias_work)?
+                    } else {
+                        split_seg(sg0, &pts, tol)?
+                    };
+                    let n = pieces.len();
                     for (k, sg) in pieces.into_iter().enumerate() {
                         if short(&sg) {
                             continue;
@@ -3495,5 +3686,200 @@ mod planar_tests {
         assert!(planar_regions_boolean(&[bad], &[], BoolOp::Union, 1e-7).is_err());
         let many = vec![plate; MAX_PLANAR_SEGMENTS / 4 + 1];
         assert!(planar_regions_boolean(&many, &[], BoolOp::Union, 1e-7).is_err());
+    }
+}
+
+#[cfg(test)]
+mod station_alias_tests {
+    use super::*;
+
+    fn declared(arc: Seg2, tag: Tag) -> SharedArcs {
+        let key = (circle_key(&arc).unwrap(), section_end(tag, true, arc.start()).unwrap(), section_end(tag, false, arc.end()).unwrap());
+        [(key, Some(arc))].into_iter().collect()
+    }
+
+    fn station(t: f64, endpoint: SectionEnd) -> SplitStation {
+        SplitStation { t, ends: [endpoint].into_iter().collect() }
+    }
+
+    #[test]
+    fn grouping_retains_the_original_non_transitive_representatives() {
+        let id = |i| SectionEnd::Vertex(0, i);
+        let t = 0.2;
+        let groups = group_stations(vec![(t + 1.5e-9, id(2)), (t, id(0)), (t + 0.75e-9, id(1))]);
+        let mut original = vec![t + 1.5e-9, t, t + 0.75e-9];
+        original.sort_by(f64::total_cmp);
+        original.dedup_by(|x, y| (*x - *y).abs() < 1e-9);
+        assert_eq!(groups.iter().map(|g| g.t).collect::<Vec<_>>(), original);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].ends, [id(0), id(1)].into_iter().collect());
+        assert_eq!(groups[1].ends, [id(2)].into_iter().collect());
+    }
+
+    #[test]
+    fn discarded_declared_event_alias_reuses_the_exact_suffix() {
+        let mut budget = MAX_PLANAR_EVENTS;
+        // These are the actual local-origin support and angle values from the public cut trace.
+        let center = Vec2::new(f64::from_bits(0x40304d4d995d58d5), f64::from_bits(0x401900000000000c));
+        let radius = f64::from_bits(0x40304d5555555552);
+        let parent = Seg2::Arc { center, radius, start: f64::from_bits(0x3ffa697cb67b95ec), sweep: f64::from_bits(0x4007da79f20cc444) };
+        let suffix = Seg2::Arc { center, radius, start: f64::from_bits(0x40004acf2f79accd), sweep: f64::from_bits(0x4004c4691dd0e26d) };
+        let tag = Tag { operand: 0, start: Some(17), end: Some(23), ..BLANK };
+        let suffix_tag = Tag { start: None, ..tag };
+        let p1 = suffix.start();
+        let p2 = Vec2::new(f64::from_bits(0x4021f65026d677cb), f64::from_bits(0x4034d0d8580090d4));
+        assert_ne!(point_bits(p1), point_bits(p2));
+        let points = [(p1, section_end(suffix_tag, true, p1).unwrap()), (p2, SectionEnd::Event(point_bits(p2).unwrap()))];
+        let pieces = shared_arc_pieces(&parent, tag, &points, 4.8541219597369e-5, &declared(suffix, suffix_tag), &mut budget).unwrap();
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[1], suffix);
+        // The inherited vertex survives the suffix. A vertex from another operand cannot substitute.
+        let other_tag = Tag { operand: 1, ..suffix_tag };
+        let pieces = shared_arc_pieces(&parent, tag, &points, 4.8541219597369e-5, &declared(suffix, other_tag), &mut budget).unwrap();
+        assert_ne!(pieces[1], suffix);
+    }
+
+    #[test]
+    fn prefix_suffix_interior_and_reversal_share_only_their_declared_interval() {
+        let mut budget = MAX_PLANAR_EVENTS;
+        let center = Vec2::new(14.999881984669177, -22.5);
+        let parent = Seg2::Arc { center, radius: 16.302083333333332, start: 0.625, sweep: 2.5 };
+        let prefix = Seg2::Arc { center, radius: 16.302083333333332, start: 0.625, sweep: 0.75 };
+        let suffix = Seg2::Arc { center, radius: 16.302083333333332, start: 1.375, sweep: 1.75 };
+        let interior = Seg2::Arc { center, radius: 16.302083333333332, start: 1.375, sweep: 0.5 };
+        for (parent, known, a, b) in [
+            (parent, prefix, 0., 0.3),
+            (parent, suffix, 0.3, 1.),
+            (parent, interior, 0.3, 0.5),
+            (parent.reversed(), prefix.reversed(), 0.7, 1.),
+            (parent.reversed(), suffix.reversed(), 0., 0.7),
+            (parent.reversed(), interior.reversed(), 0.5, 0.7),
+        ] {
+            let tag = BLANK;
+            let first = station(a, section_end(tag, true, known.start()).unwrap());
+            let end = station(b, section_end(tag, false, known.end()).unwrap());
+            assert_eq!(shared_arc(&parent, &first, &end, &declared(known, tag), &mut budget), Some(known));
+            assert!(occupies_stations(&parent, &known, a, b));
+        }
+    }
+
+    #[test]
+    fn major_minor_full_turn_and_collapsed_endpoints_do_not_alias() {
+        let center = Vec2::new(0., 5e8);
+        let delta = 2_f64.powi(-26);
+        let parent = Seg2::Arc { center, radius: 1., start: 0., sweep: std::f64::consts::TAU };
+        let tiny = Seg2::Arc { center, radius: 1., start: 0., sweep: delta };
+        let major = Seg2::Arc { center, radius: 1., start: 0., sweep: std::f64::consts::TAU - delta };
+        // Distinct minor/major arcs can have the SAME distinct f64 endpoints.
+        assert_eq!(point_bits(tiny.start()), point_bits(major.start()));
+        assert_eq!(point_bits(tiny.end()), point_bits(major.end()));
+        assert_ne!(point_bits(tiny.start()), point_bits(tiny.end()));
+        let t = delta / std::f64::consts::TAU;
+        assert!(occupies_stations(&parent, &tiny, 0., t));
+        assert!(!occupies_stations(&parent, &major, 0., t));
+        assert!(!occupies_stations(&parent, &tiny, 0., 1. - t));
+        assert!(!occupies_stations(&parent, &parent, 0., 1.));
+        let collapsed = Seg2::Arc { center: Vec2::new(1e16, 1e16), radius: 1., start: 0., sweep: 0.5 };
+        assert_eq!(point_bits(collapsed.start()), point_bits(collapsed.end()));
+        assert!(!occupies_stations(&collapsed, &collapsed, 0., 1.));
+        let wound = Seg2::Arc { center, radius: 1., start: 0., sweep: 2. * std::f64::consts::TAU };
+        assert!(circle_key(&wound).is_none());
+    }
+
+    #[test]
+    fn different_support_orientation_unknown_identity_and_ambiguity_keep_original_split() {
+        let mut budget = MAX_PLANAR_EVENTS;
+        let parent = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: 0.625, sweep: 2.5 };
+        let known = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: 1.375, sweep: 1.75 };
+        let first = station(0.3, section_end(BLANK, true, known.start()).unwrap());
+        let end = station(1., section_end(BLANK, false, known.end()).unwrap());
+        let different = Seg2::Arc { center: Vec2::ZERO, radius: f64::from_bits(4_f64.to_bits() + 1), start: 0.625, sweep: 2.5 };
+        assert!(shared_arc(&different, &first, &end, &declared(known, BLANK), &mut budget).is_none());
+        assert!(shared_arc(&parent.reversed(), &first, &end, &declared(known, BLANK), &mut budget).is_none());
+        let missing = station(0.3, SectionEnd::Vertex(9, 27));
+        assert!(shared_arc(&parent, &missing, &end, &declared(known, BLANK), &mut budget).is_none());
+        let key = (circle_key(&known).unwrap(), *first.ends.first().unwrap(), *end.ends.first().unwrap());
+        let ambiguous: SharedArcs = [(key, None)].into_iter().collect();
+        assert!(shared_arc(&parent, &first, &end, &ambiguous, &mut budget).is_none());
+        let points = [(known.start(), *first.ends.first().unwrap())];
+        assert_eq!(
+            shared_arc_pieces(&parent, BLANK, &points, 1e-6, &SharedArcs::new(), &mut budget).unwrap(),
+            split_seg(&parent, &[known.start()], 1e-6).unwrap()
+        );
+    }
+
+    #[test]
+    fn huge_angle_rounding_cannot_erase_a_different_declared_span() {
+        let (p, ps) = (2_f64.powi(53), 4.);
+        let (c, cs) = (p + 2., 3.);
+        let parent = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: p, sweep: ps };
+        let child = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: c, sweep: cs };
+        assert_eq!((c - p) / ps, 0.5);
+        assert_eq!(((c + cs) - p) / ps, 1.);
+        assert_eq!(c + cs, p + ps);
+        assert_eq!(cs / ps, 0.75);
+        assert!(!occupies_stations(&parent, &child, 0.5, 1.));
+    }
+
+    #[test]
+    fn alias_lookup_cost_is_reserved_once_against_the_shared_budget() {
+        let parent = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: 0.625, sweep: 2.5 };
+        let suffix = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: 1.375, sweep: 1.75 };
+        let mut first = station(0.3, section_end(BLANK, true, suffix.start()).unwrap());
+        let mut end = station(1., section_end(BLANK, false, suffix.end()).unwrap());
+        first.ends.insert(SectionEnd::Vertex(1, 41));
+        end.ends.extend([SectionEnd::Vertex(1, 43), SectionEnd::Vertex(1, 47)]);
+        assert_eq!(first.ends.len() * end.ends.len(), 6);
+        let arcs = declared(suffix, BLANK);
+        let mut remaining_alias_work = 10;
+        assert_eq!(shared_arc(&parent, &first, &end, &arcs, &mut remaining_alias_work), Some(suffix));
+        assert_eq!(remaining_alias_work, 4);
+        assert!(shared_arc(&parent, &first, &end, &arcs, &mut remaining_alias_work).is_none());
+        assert_eq!(remaining_alias_work, 4, "an unaffordable request performs no lookups");
+        let first = station(0.3, section_end(BLANK, true, suffix.start()).unwrap());
+        let end = station(1., section_end(BLANK, false, suffix.end()).unwrap());
+        assert_eq!(shared_arc(&parent, &first, &end, &arcs, &mut remaining_alias_work), Some(suffix));
+        assert_eq!(remaining_alias_work, 3);
+        // A cache miss still consumes its reserved work; the budget is never reset per piece.
+        assert!(shared_arc(&parent, &first, &end, &SharedArcs::new(), &mut remaining_alias_work).is_none());
+        assert_eq!(remaining_alias_work, 2);
+    }
+
+    #[test]
+    fn exhausted_alias_budget_keeps_the_original_pieces_and_does_not_refuse_the_cut() {
+        let parent = Seg2::Arc { center: Vec2::new(14.999881984669177, -22.5), radius: 16.302083333333332, start: 0.625, sweep: 2.5 };
+        let suffix = Seg2::Arc { center: Vec2::new(14.999881984669177, -22.5), radius: 16.302083333333332, start: 1.375, sweep: 1.75 };
+        let point = suffix.start();
+        let points = [(point, section_end(BLANK, true, point).unwrap())];
+        let original = split_seg(&parent, &[point], 1e-6).unwrap();
+        let arcs = declared(suffix, BLANK);
+        for limit in [0, 1] {
+            let mut remaining_alias_work = limit;
+            // With one unit, the first subpiece spends it before the suffix is considered.
+            let pieces = shared_arc_pieces(&parent, BLANK, &points, 1e-6, &arcs, &mut remaining_alias_work).unwrap();
+            assert_eq!(pieces, original);
+            assert_eq!(remaining_alias_work, 0);
+        }
+    }
+
+    #[test]
+    fn stations_near_either_arc_end_snap_like_the_original_split() {
+        let arc = Seg2::Arc { center: Vec2::ZERO, radius: 4., start: 0.625, sweep: 2.5 };
+        let tol = 1e-6;
+        for parent in [arc, arc.reversed()] {
+            let near = [parent.point_at(1e-8), parent.point_at(1. - 1e-8)];
+            assert!(near[0].dist(parent.start()) < tol);
+            assert!(near[1].dist(parent.end()) < tol);
+            // These parameters pass the parameter-space cutoff, but sewing welds
+            // each point to its nearby end: splitting there would leave no edge.
+            for points in [&near[..1], &near[1..], &near[..]] {
+                let tagged: Vec<_> = points.iter().map(|p| (*p, section_end(BLANK, true, *p).unwrap())).collect();
+                let mut budget = MAX_PLANAR_EVENTS;
+                let reused = shared_arc_pieces(&parent, BLANK, &tagged, tol, &declared(parent, BLANK), &mut budget).unwrap();
+                assert_eq!(reused, split_seg(&parent, points, tol).unwrap());
+                assert_eq!(reused, vec![parent]);
+                assert!(reused.iter().all(|piece| piece.start().dist(piece.end()) >= tol));
+            }
+        }
     }
 }

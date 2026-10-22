@@ -13,6 +13,7 @@ pub mod control_auth;
 pub mod crash;
 pub mod frames;
 pub mod fuzz;
+pub mod i18n;
 pub mod licences;
 pub mod occurrences;
 pub mod params;
@@ -1184,6 +1185,8 @@ mod measure_centre_tests;
 mod naming_history_tests;
 #[cfg(test)]
 mod pattern_suppress_tests;
+#[cfg(test)]
+mod prism_fragment_tests;
 #[cfg(test)]
 mod profile_curves_tests;
 #[cfg(test)]

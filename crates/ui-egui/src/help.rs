@@ -12,8 +12,18 @@ pub const COMMIT: &str = env!("SOLIDCRAFT_COMMIT");
 pub const BUILD_DATE: &str = env!("SOLIDCRAFT_BUILD_DATE");
 /// The user and developer guide (docs/book, published by .github/workflows/pages.yml).
 pub const DOCS_URL: &str = "https://docs.solidcraft.io/";
+pub const PT_BR_DOCS_URL: &str = "https://docs.solidcraft.io/pt-BR/";
 const ATTRIBUTION: &str = include_str!("../../../ATTRIBUTION.md");
+const PT_BR_ATTRIBUTION: &str = include_str!("../../../docs/pt-BR/ATTRIBUTION.md");
 use solidcraft_engine::licences::{LICENSE_APACHE, LICENSE_MIT, NOTICE, THIRD_PARTY};
+
+/// Languages with a published book use it; other locales keep the English guide.
+pub fn documentation_url(language: &str) -> &'static str {
+    match language {
+        "pt-BR" => PT_BR_DOCS_URL,
+        _ => DOCS_URL,
+    }
+}
 
 #[derive(Default)]
 pub struct HelpState {
@@ -26,15 +36,18 @@ pub struct HelpState {
 /// One line per fact, for bug reports.
 pub fn diagnostics(app: &SolveApp) -> String {
     let renderer = if app.viewport.gpu.is_some() { "GPU" } else { "CPU" };
-    format!(
-        "SolidCraft {VERSION} ({COMMIT}, built {BUILD_DATE})\nOS: {} {}\nRenderer: {renderer}{}\nWindow: {}\nDesign: {} ({} features, {} bodies)",
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        app.help.gpu.as_ref().map(|g| format!(", {g}")).unwrap_or_default(),
-        if app.custom_titlebar { "custom title bar" } else { "system title bar" },
-        app.session.doc.name,
-        app.session.doc.features.len(),
-        app.session.world_state().bodies.len(),
+    let locale = crate::i18n::Locale::for_language(&app.preferences.language);
+    let renderer = format!("{renderer}{}", app.help.gpu.as_ref().map(|g| format!(", {g}")).unwrap_or_default());
+    locale.protocol_format(
+        "SolidCraft {version} ({commit}, built {date})\nOS: {os} {arch}\nRenderer: {renderer}\nWindow: {window}\nDesign: {design} ({features} features, {bodies} bodies)",
+        &[
+            ("version", VERSION), ("commit", COMMIT), ("date", BUILD_DATE),
+            ("os", std::env::consts::OS), ("arch", std::env::consts::ARCH), ("renderer", &renderer),
+            ("window", locale.protocol_label(if app.custom_titlebar { "custom title bar" } else { "system title bar" })),
+            ("design", &app.session.doc.name),
+            ("features", &app.session.doc.features.len().to_string()),
+            ("bodies", &app.session.world_state().bodies.len().to_string()),
+        ],
     )
 }
 
@@ -42,7 +55,7 @@ pub fn diagnostics(app: &SolveApp) -> String {
 pub fn run(app: &mut SolveApp, ctx: &egui::Context, item: &str) {
     app.help.menu = false;
     match item {
-        "docs" => ctx.open_url(egui::OpenUrl::new_tab(DOCS_URL)),
+        "docs" => ctx.open_url(egui::OpenUrl::new_tab(documentation_url(&app.preferences.language))),
         "about" => app.help.about = true,
         "shortcuts" => {
             app.keymap.open = true;
@@ -124,7 +137,8 @@ fn about(app: &mut SolveApp, ctx: &egui::Context) {
             }
             egui::ScrollArea::vertical().max_height(crate::theme::Tokens::get().control_height * 15.0).show(ui, |ui| {
                 ui_kit::section(ui, "attributions", crate::i18n::tr("help.attributions"), false, |ui| {
-                    ui_kit::text(ui, ATTRIBUTION, ui_kit::Text::Report("attributions", false));
+                    let attribution = if app.preferences.language == "pt-BR" { PT_BR_ATTRIBUTION } else { ATTRIBUTION };
+                    ui_kit::text(ui, attribution, ui_kit::Text::Report("attributions", false));
                 });
                 ui_kit::section(ui, "fonts", crate::i18n::tr("help.fonts"), false, |ui| {
                     ui_kit::text(ui, crate::i18n::tr("help.font_details"), ui_kit::Text::Report("fonts", false));
@@ -154,6 +168,15 @@ fn about(app: &mut SolveApp, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn documentation_follows_the_published_locale_and_falls_back_to_english() {
+        assert_eq!(documentation_url("pt-BR"), "https://bherbruck.github.io/solidcraft/pt-BR/");
+        assert_eq!(documentation_url("en"), DOCS_URL);
+        assert_eq!(documentation_url("ja"), DOCS_URL);
+        assert_eq!(documentation_url("unknown"), DOCS_URL);
+        assert!(PT_BR_ATTRIBUTION.contains("Atribuição") || PT_BR_ATTRIBUTION.contains("Atribuições"));
+    }
 
     #[test]
     fn about_knows_its_build_and_diagnostics_say_where_it_runs() {

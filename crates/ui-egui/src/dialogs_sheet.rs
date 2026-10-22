@@ -411,13 +411,13 @@ fn export_flat(app: &mut SolveApp, body: &str, extension: &str) -> String {
         let message = if let Some(path) = path {
             match app.run(command, json!({"body": body, "path": path})) {
                 Ok(_) => {
-                    app.set_status(format!("Exported {path}"), false);
-                    format!("Saved {path}")
+                    app.set_status(app.tr_format("file.exported", &[("path", &path)]), false);
+                    app.tr_format("file.saved", &[("path", &path)])
                 }
                 Err(e) => e,
             }
         } else {
-            "Export cancelled".into()
+            crate::i18n::tr_label("Export cancelled").into()
         };
         if let Some(d) = app.dialog.as_mut()
             && let Kind::Sheet(Sm::FlatPattern { status, .. }) = &mut d.kind
@@ -425,7 +425,7 @@ fn export_flat(app: &mut SolveApp, body: &str, extension: &str) -> String {
             *status = Some(message);
         }
     });
-    "Choose an export file…".into()
+    crate::i18n::tr_label("Choose an export file…").into()
 }
 
 // ---- commands ----
@@ -947,7 +947,7 @@ fn pocket_label(app: &SolveApp, pocket: &Value) -> Option<String> {
         "internal" => "Internal",
         _ => return None,
     };
-    Some(format!("{side} pocket: {} deep", crate::prefs::show_mm(app, depth, 1)))
+    Some(crate::i18n::format("sheet.pocket_depth", &[("side", crate::i18n::tr_label(side)), ("depth", &crate::prefs::show_mm(app, depth, 1))]))
 }
 
 #[cfg(test)]

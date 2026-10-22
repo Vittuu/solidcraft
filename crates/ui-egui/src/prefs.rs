@@ -1259,10 +1259,11 @@ fn page_index(name: &str) -> Option<usize> {
 /// `theme_export: true` returns the theme on now as `theme_file`; any other keys set
 /// preferences. Returns them all, the open page, the offer and the theme ids.
 pub fn control(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let locale = crate::i18n::Locale::for_language(&app.preferences.language);
     let mut rest = p.as_object().cloned().unwrap_or_default();
     if let Some(page) = rest.remove("open") {
         let name = page.as_str().unwrap_or("General");
-        let i = page_index(name).ok_or_else(|| format!("no page `{name}` ({})", PAGES.join(", ")))?;
+        let i = page_index(name).ok_or_else(|| locale.protocol_error(&format!("no page `{name}` ({})", PAGES.join(", "))))?;
         open_at(app, i);
         if app.prefs_window.snapshot.is_none() {
             app.prefs_window.snapshot = Some(Snapshot::take(app));
@@ -1288,7 +1289,7 @@ pub fn control(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::
         Some("cancel") => close(app, true),
         Some("apply") => app.prefs_window.snapshot = Some(Snapshot::take(app)),
         Some("defaults") => defaults(app, app.prefs_window.section),
-        Some(b) => return Err(format!("unknown button `{b}` (ok, cancel, apply, defaults)")),
+        Some(b) => return Err(locale.protocol_error(&format!("unknown button `{b}` (ok, cancel, apply, defaults)"))),
         None => {}
     }
     if button.is_some() {
@@ -1442,11 +1443,12 @@ pub fn lenient(saved: &serde_json::Value) -> Prefs {
 
 /// Set preferences from JSON (control channel); returns them all.
 pub fn set(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let locale = crate::i18n::Locale::for_language(&app.preferences.language);
     let mut cur = serde_json::to_value(&app.preferences).map_err(|e| e.to_string())?;
     if let (Some(o), Some(src)) = (cur.as_object_mut(), p.as_object()) {
         for (k, v) in src {
             if !o.contains_key(k) {
-                return Err(format!("unknown preference `{k}`"));
+                return Err(locale.protocol_error(&format!("unknown preference `{k}`")));
             }
             o.insert(k.clone(), v.clone());
         }
@@ -1459,13 +1461,16 @@ pub fn set(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::Valu
     }
     let new: Prefs = migrate(serde_json::from_value(cur).map_err(|e| e.to_string())?);
     if !UNITS.contains(&new.default_units.as_str()) {
-        return Err(format!("units must be one of {}", UNITS.join(", ")));
+        return Err(locale.protocol_error(&format!("units must be one of {}", UNITS.join(", "))));
     }
     if !NAV_PRESETS.iter().any(|p| p.id == new.nav) || !MSAA.contains(&new.msaa) {
-        return Err(format!("`nav` must be one of {} and `msaa` 1, 2, 4 or 8", NAV_PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ")));
+        return Err(locale.protocol_format(
+            "`nav` must be one of {presets} and `msaa` 1, 2, 4 or 8",
+            &[("presets", &NAV_PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", "))],
+        ));
     }
     if new.msaa != app.preferences.msaa && !app.msaa_supported.is_empty() && !app.msaa_supported.contains(&new.msaa) {
-        return Err(format!("this graphics device doesn't support `msaa` {}; it supports {:?}", new.msaa, app.msaa_supported));
+        return Err(locale.protocol_error(&format!("this graphics device doesn't support `msaa` {}; it supports {:?}", new.msaa, app.msaa_supported)));
     }
     let file = crate::theme_files::find(&new.theme, &new.custom_themes);
     if (!THEMES.iter().any(|(id, _)| *id == new.theme) && file.is_none()) || !["z", "y"].contains(&new.up_axis.as_str()) {
@@ -1475,7 +1480,10 @@ pub fn set(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::Valu
         return Err(format!("at most {} imported themes of {} colours each", crate::theme_files::MAX_CUSTOM, crate::theme_files::MAX_COLORS));
     }
     if !crate::i18n::is_supported(&new.language) {
-        return Err(format!("`language` must be one of: {}", crate::i18n::LOCALES.iter().map(|locale| locale.id).collect::<Vec<_>>().join(", ")));
+        return Err(locale.protocol_error(&format!(
+            "`language` must be one of: {}",
+            crate::i18n::LOCALES.iter().map(|locale| locale.id).collect::<Vec<_>>().join(", ")
+        )));
     }
     if new.ui_font != app.preferences.ui_font && !new.ui_font.trim().is_empty() && crate::fonts::ui_font(&new.ui_font).is_none() {
         return Err(format!("`ui_font`: `{}` is not an installed font family or a readable font file", new.ui_font.trim()));
@@ -1487,13 +1495,13 @@ pub fn set(app: &mut SolveApp, p: &serde_json::Value) -> Result<serde_json::Valu
         return Err("`ui_scale` must be 0.5…2.5 and `look_at_speed` 0.25…4".into());
     }
     if solidcraft_engine::doc::display_quality::DisplayQuality::parse(&new.display_quality).is_none() {
-        return Err("`display_quality` must be coarse, normal, fine or ultra".into());
+        return Err(locale.protocol_error("`display_quality` must be coarse, normal, fine or ultra"));
     }
     if !SUPERSAMPLING.contains(&new.supersampling) {
-        return Err("`supersampling` must be 1 (off), 1.5 or 2".into());
+        return Err(locale.protocol_error("`supersampling` must be 1 (off), 1.5 or 2"));
     }
     if MiddleDoubleClick::parse(&new.middle_double_click).is_none() {
-        return Err("`middle_double_click` must be home, fit or off".into());
+        return Err(locale.protocol_error("`middle_double_click` must be home, fit or off"));
     }
     if new.theme != app.preferences.theme && new.theme != "system" {
         app.ui.dark = file.map_or(new.theme == "dark", |f| f.base.is_dark());

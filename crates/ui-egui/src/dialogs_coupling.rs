@@ -20,6 +20,9 @@ use crate::theme::Tokens;
 /// What a round-face input takes: a face, or an edge of one.
 const ROUND: u16 = FACES | EDGES;
 
+/// Linear travel per revolution, distinct from a joint's angular pitch.
+const PITCH_LABEL: &str = "coupling.pitch";
+
 #[derive(Clone, Debug)]
 pub struct CouplingForm {
     /// `joint.gear`, `joint.rack_pinion` or `joint.screw`.
@@ -183,7 +186,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, f: &mut CouplingForm, inputs:
         }
         _ => {
             joint_row(ui, role_b, "cp_b", &lb, &mut f.b);
-            enter |= expr_row(ui, "Pitch", s0);
+            enter |= crate::ui_kit::row_display(ui, "Pitch", crate::i18n::tr(PITCH_LABEL), |ui| field(ui, s0));
         }
     }
     if f.command == "joint.gear" {

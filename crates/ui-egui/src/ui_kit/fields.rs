@@ -168,11 +168,18 @@ fn dropdown_arrow(ui: &Ui, rect: egui::Rect, _visuals: &egui::style::WidgetVisua
 
 /// Native dropdown with kit arrow and scenario option handles. Tokens: `text_dim; scope control/font tokens`.
 pub(crate) fn dropdown(ui: &mut Ui, id: &str, selected: &mut usize, options: &[&str]) -> Response {
-    let text = options.get(*selected).copied().map(crate::i18n::tr_label).unwrap_or("");
+    let display: Vec<&str> = options.iter().map(|option| crate::i18n::tr_label(option)).collect();
+    dropdown_display(ui, id, selected, options, &display)
+}
+
+/// Presentation labels are separate from canonical option/handle names.
+/// Tokens: dropdown tokens.
+pub(crate) fn dropdown_display(ui: &mut Ui, id: &str, selected: &mut usize, options: &[&str], display: &[&str]) -> Response {
+    let text = display.get(*selected).copied().unwrap_or("");
     let row = label(ui).to_string();
     dropdown_menu(ui, id, text, |ui| {
         for (index, option) in options.iter().enumerate() {
-            let response = ui.selectable_value(selected, index, crate::i18n::tr_label(option));
+            let response = ui.selectable_value(selected, index, display.get(index).copied().unwrap_or(option));
             scenario::publish_handle(&format!("dialog:{row}:{option}"), response.rect.center());
         }
     })

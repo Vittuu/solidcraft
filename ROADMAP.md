@@ -261,12 +261,12 @@ completed drawings publish atomically. The browser still exports synchronously.
   Crash Reports…) with a reviewed issue draft; agents read them through
   `diagnostics.crash_reports`, the MCP `crash_reports` tool or the CLI. Nothing is sent
   anywhere. See [crash reports](docs/crash-reports.md).
-- Agent chat (off by default, desktop): a side panel that drives a coding agent the user
+- Agent chat (desktop): a side panel that drives a coding agent the user
   already has (Claude Code through its ACP adapter, Codex, Gemini CLI, OpenCode, Grok Build, …) over the
   Agent Client Protocol, under the user's own login; SolidCraft stores no keys. The agent works
   through SolidCraft's MCP tools on a gated endpoint of its own: file actions wait for Allow or
   Deny, crash reports are off limits, 24 changes per message, one undo step per message, and
-  the agent's whole process group ends with the panel or the app. Docks left or right,
+  the agent's whole process group ends when stopped or when the app exits. Docks left or right,
   minimises to a strip. Grok Build discovery includes `~/.grok/bin` and reuses the user's
   Grok login. See [agent chat](docs/agent-chat.md).
 - Command scripts from designs (#886): `timeline.export_script` (CLI `solidcraft-cli script`)
@@ -643,10 +643,16 @@ and reference-object placement remain separate work, as do loft rails and center
   0.57 s; initial opening is unchanged. Actual Windows desktop profiling measures 15.87 s
   median opening, with 82% spent rebuilding geometry; halving full opening remains open.
 
+## Brazilian Portuguese
+
+- The offline `pt-BR` catalog covers every English message, is registered in Preferences
+  and is protected by the complete-catalog checks. Command identifiers and saved model names
+  retain their original values. The Brazilian Portuguese book is published alongside English.
+
 ## Kernel
 
 - Successful Boolean retries report their strategy and numerical adjustments as
-  feature warnings and structured inspection data. Diagnostics survive cached
+  structured inspection data; retries that can change the exact result also show feature warnings. Diagnostics survive cached
   evaluation, undo/redo and cold reopening; the robustness runner counts retry
   events by strategy and reports any bounded-log truncation. Existing geometry
   acceptance checks remain in force.

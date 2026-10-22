@@ -54,6 +54,23 @@ pub(crate) fn builtin() -> Vec<Look> {
     ]
 }
 
+/// Translate exact library definitions, preserving user-authored look names.
+fn display_look(look: &Look) -> &str {
+    if look.category == "In This Design" {
+        return &look.name;
+    }
+    let matches = |candidate: solidcraft_engine::doc::appearance::Look| {
+        candidate.name == look.name && candidate.color == look.color && candidate.opacity == look.opacity && candidate.pbr == look.pbr
+    };
+    static FALLBACK: std::sync::OnceLock<Vec<Look>> = std::sync::OnceLock::new();
+    let stock = solidcraft_engine::doc::appearance::library(&look.name).is_some_and(matches)
+        || solidcraft_engine::doc::appearance::material_look(&look.name).is_some_and(matches)
+        || FALLBACK.get_or_init(builtin).iter().any(|candidate| {
+            candidate.name == look.name && candidate.color == look.color && candidate.opacity == look.opacity && candidate.pbr == look.pbr
+        });
+    if stock { crate::i18n::tr_label(&look.name) } else { &look.name }
+}
+
 /// The library: the engine's when it has one, else the built-in looks.
 pub fn library(app: &mut SolveApp) -> Vec<Look> {
     let from_engine = app.session.execute("appearance.library", &json!({})).ok().and_then(|v| {
@@ -280,7 +297,7 @@ fn c32(c: [u8; 3], opacity: f64) -> Color32 {
 pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &mut [SelInput]) -> bool {
     // Apply To: bodies or faces (the input follows).
     if let Some(component) = &k.component {
-        ui_kit::row(ui, "Apply To", |ui| ui_kit::text(ui, &format!("Component: {component}"), ui_kit::Text::Cell));
+        ui_kit::row(ui, "Apply To", |ui| ui_kit::text(ui, &crate::i18n::format("ui.component_label", &[("name", component)]), ui_kit::Text::Cell));
         if ui_kit::row(ui, "", |ui| ui_kit::button(ui, crate::i18n::tr_label("Select bodies or faces instead"), ui_kit::Button::Normal)).clicked() {
             k.component = None;
         }
@@ -362,7 +379,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &mut [Sel
                 Ok(_) => {
                     k.remove_override = true;
                     k.applied = None;
-                    "Inherited appearance restored".into()
+                    crate::i18n::tr("appearance.restored").into()
                 }
                 Err(e) => e,
             });
@@ -380,7 +397,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &mut [Sel
                     egui::Id::new(("ap_used", *i)),
                     c32(look.color, look.opacity),
                     k.color == look.color && k.opacity == look.opacity && k.pbr == look.pbr,
-                    &format!("{} · {n} item(s)", look.name),
+                    &crate::i18n::format("appearance.count", &[("name", display_look(look)), ("count", &n.to_string())]),
                     look.clone(),
                 )
                 .clicked()
@@ -411,8 +428,13 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &mut [Sel
     crate::scenario::publish_handle("appearance:search", search.rect.center());
     let want = cats.get(k.category).cloned().unwrap_or_default();
     let query = k.search.trim().to_lowercase();
-    let shown: Vec<(usize, &Look)> =
-        lib.iter().enumerate().filter(|(_, l)| (k.category == 0 || l.category == want) && l.name.to_lowercase().contains(&query)).collect();
+    let shown: Vec<(usize, &Look)> = lib
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| {
+            (k.category == 0 || l.category == want) && (l.name.to_lowercase().contains(&query) || display_look(l).to_lowercase().contains(&query))
+        })
+        .collect();
     if shown.is_empty() {
         ui_kit::text(ui, crate::i18n::tr_label("No matching appearances"), ui_kit::Text::Note("appearances_empty"));
     }
@@ -423,7 +445,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &mut [Sel
             egui::Id::new(("ap_lib", *i)),
             c32(l.color, l.opacity),
             picked_look,
-            &format!("{} (drag onto a body or face)", l.name),
+            &crate::i18n::format("appearance.drag_hint", &[("name", display_look(l))]),
             (*l).clone(),
         )
         .clicked()
@@ -451,14 +473,14 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &mut [Sel
             k.note = Some(match app.run("appearance.assign", p.clone()) {
                 Ok(_) => {
                     k.applied = Some(p);
-                    format!("{} on {}", look.name, target_names(&targets))
+                    crate::i18n::format("appearance.applied_to", &[("name", display_look(&look)), ("targets", &target_names(&targets))])
                 }
                 Err(e) => e,
             });
         }
     }
     if let Some(n) = &k.note {
-        ui_kit::text(ui, n, ui_kit::Text::Report("appearance_status", false));
+        ui_kit::text(ui, &crate::display_error(n), ui_kit::Text::Report("appearance_status", false));
     }
     false
 }
@@ -468,7 +490,7 @@ fn target_names(targets: &[Sel]) -> String {
         .iter()
         .map(|x| match x {
             Sel::Body { name } => name.clone(),
-            Sel::Face { body, .. } => format!("a face of {body}"),
+            Sel::Face { body, .. } => crate::i18n::format("appearance.face_of", &[("body", body)]),
             _ => String::new(),
         })
         .collect::<Vec<_>>()
@@ -489,6 +511,15 @@ mod tests {
         s.execute("solid.box", &json!({"length": 10, "width": 10, "height": 10})).unwrap();
         s.execute("solid.box", &json!({"length": 5, "width": 5, "height": 5, "corner": [20, 0, 0]})).unwrap();
         SolveApp::new(s, Services::default())
+    }
+
+    #[test]
+    fn changed_pbr_preserves_an_authored_look_name() {
+        let _language = crate::i18n::scope("pt-BR");
+        let mut look = builtin().into_iter().find(|look| look.name == "Brass").unwrap();
+        assert_ne!(display_look(&look), "Brass");
+        look.pbr = Some(PbrParameters::new(0.76, 0.13, 2.1).unwrap());
+        assert_eq!(display_look(&look), "Brass");
     }
 
     #[test]

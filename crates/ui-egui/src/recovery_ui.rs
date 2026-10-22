@@ -77,7 +77,7 @@ pub fn tick(app: &mut SolveApp) {
         error.get_or_insert(e);
     }
     if let Some(e) = error {
-        let msg = format!("autosave failed: {e}");
+        let msg = app.tr_format("recovery.autosave_failed", &[("error", &e.to_string())]);
         if app.status.as_ref().is_none_or(|(s, _, _)| *s != msg) {
             app.set_status(msg, true);
         }
@@ -91,7 +91,7 @@ pub fn start(app: &mut SolveApp, dir: &std::path::Path, interval: std::time::Dur
             app.recoverable = recovery::orphans(dir);
             app.autosave = Some(Autosaves { dir: dir.to_path_buf(), interval, active: Some(a), last_at: Instant::now() });
         }
-        Err(e) => app.set_status(format!("autosave is off: {e}"), true),
+        Err(e) => app.set_status(app.tr_format("recovery.autosave_off", &[("error", &e.to_string())]), true),
     }
 }
 

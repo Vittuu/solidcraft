@@ -545,7 +545,9 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Asm, inputs: &mut [Se
             if kind != JointKind::Rigid {
                 form_row(ui, "Animate", |ui| {
                     let label = if f.animate { "■ Stop" } else { "▶ Play" };
-                    if crate::ui_kit::button(ui, label, crate::ui_kit::Button::Normal).on_hover_text("Play the joint's motion in the view").clicked()
+                    if crate::ui_kit::button(ui, label, crate::ui_kit::Button::Normal)
+                        .on_hover_text(crate::i18n::tr("assembly.play_joint_hint"))
+                        .clicked()
                     {
                         f.animate = !f.animate;
                     }
@@ -553,9 +555,14 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Asm, inputs: &mut [Se
                 crate::ui_kit::section(ui, "joint_limits", "Limits", false, |ui| {
                     for (i, (on, lo, hi)) in f.limits.iter_mut().enumerate() {
                         let name = kind.dofs().get(i).copied().unwrap_or("value");
-                        form_row(ui, &format!("{} limits", capital(name)), |ui| {
-                            crate::ui_kit::checkbox(ui, "", on);
-                        });
+                        crate::ui_kit::row_display(
+                            ui,
+                            &format!("{} limits", capital(name)),
+                            &crate::i18n::format("assembly.limit_axis", &[("axis", dof_display(name))]),
+                            |ui| {
+                                crate::ui_kit::checkbox(ui, "", on);
+                            },
+                        );
                         if *on {
                             enter |= expr_row(ui, "  Minimum", lo);
                             enter |= expr_row(ui, "  Maximum", hi);
@@ -588,8 +595,14 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Asm, inputs: &mut [Se
             let labels: Vec<String> =
                 list.iter().filter_map(|i| s.doc.assembly.joints.get(*i)).map(|j| format!("{} ({:?})", j.name, j.kind)).collect();
             let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+            let display_labels: Vec<String> = list
+                .iter()
+                .filter_map(|i| s.doc.assembly.joints.get(*i))
+                .map(|j| format!("{} ({})", j.name, crate::i18n::tr_label(&format!("{:?}", j.kind))))
+                .collect();
+            let display: Vec<&str> = display_labels.iter().map(String::as_str).collect();
             let mut pos = list.iter().position(|i| i == joint).unwrap_or(0);
-            choice_row(ui, "Joint", "drv_joint", &mut pos, &refs);
+            form_row(ui, "Joint", |ui| crate::ui_kit::dropdown_display(ui, "drv_joint", &mut pos, &refs, &display));
             let pick = list.get(pos).copied().unwrap_or(0);
             if pick != *joint || values.is_empty() {
                 *joint = pick;
@@ -600,7 +613,7 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Asm, inputs: &mut [Se
                 let angle = j.kind.is_angle(i);
                 let unit_kind = if angle { ValueKind::Angle } else { ValueKind::Length };
                 let name = j.kind.dofs().get(i).copied().unwrap_or("value");
-                form_row(ui, &capital(name), |ui| {
+                crate::ui_kit::row_display(ui, &capital(name), dof_display(name), |ui| {
                     if i == 0 {
                         // Typing replaces the value at once, as in the other dialogs' value boxes.
                         let id = egui::Id::new("sc_drive_value");
@@ -649,9 +662,12 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Asm, inputs: &mut [Se
                 };
                 ui.vertical(|ui| {
                     ui.label(
-                        RichText::new(format!("{} … {}{}", fmt(lo), fmt(hi), if limited { "  (limits)" } else { "  (no limits)" }))
-                            .size(crate::theme::Tokens::get().font_small)
-                            .color(if limited { t.text } else { t.text_dim }),
+                        RichText::new(crate::i18n::format(
+                            if limited { "assembly.limit_range" } else { "assembly.unlimited_range" },
+                            &[("minimum", &fmt(lo)), ("maximum", &fmt(hi))],
+                        ))
+                        .size(crate::theme::Tokens::get().font_small)
+                        .color(if limited { t.text } else { t.text_dim }),
                     );
                 });
             }
@@ -718,6 +734,19 @@ pub fn rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Asm, inputs: &mut [Se
     enter
 }
 
+/// Joint rotation pitch uses its own message, distinct from a helix pitch.
+pub(crate) fn dof_display(name: &str) -> &str {
+    match name {
+        "angle" => crate::i18n::tr("assembly.dof_angle"),
+        "distance" => crate::i18n::tr("assembly.dof_distance"),
+        "slide" => crate::i18n::tr("assembly.dof_slide"),
+        "yaw" => crate::i18n::tr("assembly.dof_yaw"),
+        "pitch" => crate::i18n::tr("assembly.dof_pitch"),
+        "roll" => crate::i18n::tr("assembly.dof_roll"),
+        _ => crate::i18n::tr_label(name),
+    }
+}
+
 fn capital(s: &str) -> String {
     let mut c = s.chars();
     c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
@@ -757,7 +786,7 @@ fn interference_rows(app: &SolveApp, ui: &mut egui::Ui, r: &Value) {
     let t = Tokens::get();
     if let Some(e) = r.get("error").and_then(Value::as_str) {
         form_row(ui, "", |ui| {
-            ui.label(RichText::new(e).color(t.error));
+            ui.label(RichText::new(crate::display_error(e)).color(t.error));
         });
         return;
     }
@@ -814,7 +843,7 @@ fn interference_rows(app: &SolveApp, ui: &mut egui::Ui, r: &Value) {
     for u in unchecked {
         form_row(ui, &format!("{} · {}", u["a"].as_str().unwrap_or(""), u["b"].as_str().unwrap_or("")), |ui| {
             ui.label(RichText::new(crate::i18n::tr("dialog.could_not_be_checked")).color(t.warning))
-                .on_hover_text(u["reason"].as_str().unwrap_or(""));
+                .on_hover_text(crate::display_error(u["reason"].as_str().unwrap_or("")));
         });
     }
 }
@@ -1131,7 +1160,7 @@ pub fn overlay(app: &SolveApp, painter: &egui::Painter, proj: &Proj, d: &mut Dia
         .filter_map(|(n, i)| i.items.first().and_then(|x| snap_of(&app.session, x)).map(|s| (s, if n == 0 { t.accent } else { t.warning })))
         .collect();
     for (n, (s, c)) in picked.iter().enumerate() {
-        let tag = format!("Component {}", n + 1);
+        let tag = crate::i18n::format("assembly.component_number", &[("number", &(n + 1).to_string())]);
         glyph(painter, proj, s, *c, app.cam.half_height(), two.then_some(tag.as_str()));
     }
     // The snap under the cursor (found again only when the hovered item changes).
@@ -1225,7 +1254,8 @@ pub fn timeline_joints(app: &mut SolveApp, ui: &mut egui::Ui, p: &egui::Painter,
         if suppressed {
             p.line_segment([br.left_bottom() + vec2(4.0, -4.0), br.right_top() + vec2(-4.0, 4.0)], Stroke::new(1.5, t.text_dim));
         }
-        let resp = resp.on_hover_text(format!("{name}  ({kind:?} joint)\nDouble-click to edit · right-click for more"));
+        let resp =
+            resp.on_hover_text(crate::i18n::format("assembly.joint_hint", &[("name", &name), ("kind", crate::i18n::tr_label(&format!("{kind:?}")))]));
         if resp.double_clicked() {
             open = edit_joint(app, id);
         } else if resp.clicked() {
@@ -1260,7 +1290,9 @@ pub fn timeline_joints_vertical(app: &mut SolveApp, ui: &mut egui::Ui) {
         return;
     }
     ui.add_space(4.0);
-    ui.label(egui::RichText::new("JOINTS").size(crate::theme::Tokens::get().font_micro).semibold().color(t.text_dim));
+    ui.label(
+        egui::RichText::new(crate::i18n::tr("assembly.heading_joints")).size(crate::theme::Tokens::get().font_micro).semibold().color(t.text_dim),
+    );
     let mut open = None;
     let mut run = None;
     for (id, name, kind, suppressed) in joints {
@@ -1283,7 +1315,8 @@ pub fn timeline_joints_vertical(app: &mut SolveApp, ui: &mut egui::Ui) {
             egui::FontId::proportional(crate::theme::Tokens::get().font_body),
             if suppressed { t.text_dim } else { t.text },
         );
-        let response = response.on_hover_text(format!("{name}  ({kind:?} joint)\nDouble-click to edit · right-click for more"));
+        let response = response
+            .on_hover_text(crate::i18n::format("assembly.joint_hint", &[("name", &name), ("kind", crate::i18n::tr_label(&format!("{kind:?}")))]));
         if response.double_clicked() {
             open = edit_joint(app, id);
         } else if response.clicked() {
@@ -1355,7 +1388,7 @@ pub fn browser_joints(app: &mut SolveApp, ui: &mut egui::Ui, depth: usize) {
             },
         );
         if let Some(resp) = &r.resp {
-            resp.clone().on_hover_text(format!("{kind:?} joint"));
+            resp.clone().on_hover_text(crate::i18n::format("assembly.joint_kind", &[("kind", crate::i18n::tr_label(&format!("{kind:?}")))]));
         }
         if r.eye {
             let _ = app.run("browser.visibility", json!({ "joints": [id], "visible": !visible }));

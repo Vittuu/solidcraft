@@ -23,6 +23,14 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+// Only formatted human prose uses this helper. JSON, IDs, paths and private progress
+// protocols retain their canonical data; command schemas localize their diagnostic fields.
+macro_rules! human_format {
+    ($locale:expr, $($args:tt)*) => {
+        $locale.protocol_error(&format!($($args)*))
+    };
+}
+
 mod bench_agent;
 mod crashes;
 mod fuzz;
@@ -40,9 +48,11 @@ use serde_json::{Value, json};
 mod app_icon;
 
 use solidcraft_engine::Session;
+use solidcraft_engine::i18n::Locale;
 use solidcraft_engine::view::Guides;
 
 const USAGE: &str = "usage:
+  Global option: --language <locale> (for example pt-BR); SOLIDCRAFT_LANGUAGE also selects the language.
   solidcraft-cli run <script.json|design.solidcraft|part.step> [--in design.solidcraft|part.step] [--out FILE]... [--save FILE] [--quiet] [--results] [--timings] [--profile] [--json-out FILE] [--allow-errors]
   solidcraft-cli run --in <design.solidcraft|part.step> [--out FILE]...
       (a timeline feature that fails fails the run and nothing is written; --allow-errors writes anyway)
@@ -92,18 +102,26 @@ const USAGE: &str = "usage:
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     logger::init(&mut args);
+    let (locale, args) = match language_args(args) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let r = match args.first().map(String::as_str) {
-        Some("run") => cmd_run(&args[1..]),
-        Some("eval" | "inspect") => cmd_eval(&args[1..]),
+        Some("run") => cmd_run(&args[1..], locale),
+        Some("eval" | "inspect") => cmd_eval(&args[1..], locale),
         Some("script") => cmd_script(&args[1..]),
-        Some("snapshot") => cmd_snapshot(&args[1..]),
+        Some("snapshot") => cmd_snapshot(&args[1..], locale),
         Some("render") => render::run(&args[1..]),
-        Some("exec") => cmd_exec(&args[1..]),
-        Some("gpu") => cmd_gpu(&args[1..]),
+        Some("exec") => cmd_exec(&args[1..], locale),
+        Some("gpu") => cmd_gpu(&args[1..], locale),
         Some("commands") => {
             use std::io::Write as _;
             let mut s = Session::default();
-            s.execute("engine.commands", &json!({})).map_err(|e| e.to_string()).and_then(|v| {
+            s.execute("engine.commands", &json!({})).map_err(|e| e.to_string()).and_then(|mut v| {
+                locale.command_catalog(&mut v);
                 // A pipeline consumer may stop early (e.g. `commands | head`).
                 // Unlike println!, writing explicitly lets us handle that without a panic.
                 match writeln!(std::io::stdout().lock(), "{}", pretty(&v)) {
@@ -117,11 +135,11 @@ fn main() -> ExitCode {
             let v = read_json(p)?;
             recipe::to_script(&v).map(|s| println!("{}", pretty(&s)))
         }),
-        Some("oracle") => oracle::run(&args[1..]),
-        Some("fuzz") => fuzz::run(&args[1..]),
+        Some("oracle") => oracle::run(&args[1..], locale),
+        Some("fuzz") => fuzz::run(&args[1..], locale),
         Some("fuzz-one") => fuzz::one(&args[1..]),
-        Some("mcp") => cmd_mcp(&args[1..]),
-        Some("crashes") => crashes::run(&args[1..]),
+        Some("mcp") => cmd_mcp(&args[1..], locale),
+        Some("crashes") => crashes::run(&args[1..], locale),
         Some("icon") => cmd_icon(&args[1..]),
         Some("licences" | "licenses") => {
             // Written, not print!ed: a closed pipe (`| head`) is not a crash.
@@ -133,9 +151,9 @@ fn main() -> ExitCode {
         Some("save-stress") => cmd_save_stress(&args[1..]),
         // Hidden: time recomputes after parameter edits (docs/perf.md).
         Some("bench-edit") => cmd_bench_edit(&args[1..]),
-        Some("bench-open") => cmd_bench_open(&args[1..]),
+        Some("bench-open") => cmd_bench_open(&args[1..], locale),
         // A ~1,300-body design built command by command, as an agent builds one over MCP.
-        Some("bench-agent") => bench_agent::run(&args[1..]),
+        Some("bench-agent") => bench_agent::run(&args[1..], locale),
         Some("--version" | "-V") => {
             println!("solidcraft-cli {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -143,7 +161,7 @@ fn main() -> ExitCode {
         // Asked-for help is not an error: usage on stdout, exit 0.
         Some("--help" | "-h" | "help") => {
             use std::io::Write as _;
-            let _ = std::io::stdout().lock().write_all(USAGE.as_bytes());
+            let _ = std::io::stdout().lock().write_all(locale.protocol_label(USAGE).as_bytes());
             Ok(())
         }
         _ => Err(USAGE.to_string()),
@@ -151,10 +169,55 @@ fn main() -> ExitCode {
     match r {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("{}: {}", locale.protocol_label("error"), locale.protocol_error(&e));
             ExitCode::FAILURE
         }
     }
+}
+
+/// Language is a presentation option; command IDs, parameter names and JSON results retain
+/// their machine-readable form. Existing invocations default to English.
+fn language_args(args: Vec<String>) -> Result<(Locale, Vec<String>), String> {
+    let mut language = solidcraft_engine::geom::env::var("LANGUAGE").unwrap_or_else(|| "en".to_string());
+    let mut remaining = Vec::new();
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--language" {
+            language = iter.next().ok_or_else(|| "--language needs a locale ID".to_string())?;
+        } else {
+            let takes_value = matches!(
+                arg.as_str(),
+                "--in"
+                    | "--out"
+                    | "--json-out"
+                    | "--save"
+                    | "--script-out"
+                    | "--scale"
+                    | "--setup"
+                    | "--width"
+                    | "--height"
+                    | "--view"
+                    | "--size"
+                    | "--connect"
+                    | "--token"
+                    | "--allow-path"
+                    | "--from"
+                    | "--count"
+                    | "--jobs"
+                    | "--timeout"
+                    | "--steps"
+                    | "--report"
+            );
+            remaining.push(arg);
+            if takes_value && let Some(value) = iter.next() {
+                remaining.push(value);
+            }
+        }
+    }
+    if !solidcraft_engine::i18n::is_supported(&language) {
+        return Err(format!("unsupported language `{language}`"));
+    }
+    Ok((Locale::for_language(&language), remaining))
 }
 
 fn pretty(v: &Value) -> String {
@@ -260,7 +323,7 @@ fn print_json(v: &Value, file: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn cmd_run(args: &[String]) -> Result<(), String> {
+fn cmd_run(args: &[String], locale: Locale) -> Result<(), String> {
     install_renderer();
     let json_out = json_out(args)?;
     let base = flag(args, "--in");
@@ -281,13 +344,16 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         let needs = if want_results { "--results needs a script" } else { "--timings needs a script" };
         let v = read_json(path.ok_or(needs)?)?;
         let out = if timings {
-            let (r, mut t) = s.run_script_timed(&v, profile).map_err(|e| e.to_string())?;
+            let (mut r, mut t) = s.run_script_timed(&v, profile).map_err(|e| e.to_string())?;
+            localize_script_results(locale, &v, &mut r);
             if want_results && let Some(o) = t.as_object_mut() {
                 o.insert("results".into(), Value::Array(r));
             }
             t
         } else {
-            Value::Array(s.run_script(&v).map_err(|e| e.to_string())?)
+            let mut r = s.run_script(&v).map_err(|e| e.to_string())?;
+            localize_script_results(locale, &v, &mut r);
+            Value::Array(r)
         };
         (s, Some(out))
     } else {
@@ -297,7 +363,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     // break a feature without failing the command that made it): writing them would hand out
     // the wrong part with success, so fail the run unless asked to write it anyway.
     if !args.iter().any(|a| a == "--allow-errors") {
-        timeline_ok(&s)?;
+        timeline_ok(&s, locale)?;
     }
     for out in flags(args, "--out") {
         s.execute("file.export", &json!({"path": out})).map_err(|e| e.to_string())?;
@@ -309,7 +375,8 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
         print_json(&results, json_out)?;
     } else if json_out.is_some() || !args.iter().any(|a| a == "--quiet") {
         // `--quiet` silences stdout; a file that was asked for is still written.
-        let m = s.execute("inspect.measure", &json!({})).map_err(|e| e.to_string())?;
+        let mut m = s.execute("inspect.measure", &json!({})).map_err(|e| e.to_string())?;
+        locale.command_result("inspect.measure", &mut m);
         print_json(&m, json_out)?;
     }
     Ok(())
@@ -350,24 +417,35 @@ fn known_flags(cmd: &str, args: &[String], valued: &[&str], switches: &[&str]) -
 }
 
 /// Every failing timeline feature, one per line, as an error; Ok when none fails.
-fn timeline_ok(s: &Session) -> Result<(), String> {
-    let failed: Vec<String> = s.model.results.iter().filter_map(|r| r.error.as_ref().map(|e| format!("  {}: {e}", r.name))).collect();
+fn timeline_ok(s: &Session, locale: Locale) -> Result<(), String> {
+    let failed: Vec<String> =
+        s.model.results.iter().filter_map(|r| r.error.as_ref().map(|e| format!("  {}: {}", r.name, locale.protocol_error(e)))).collect();
     if failed.is_empty() {
         return Ok(());
     }
-    Err(format!(
-        "{} timeline feature(s) failed, so nothing was written (--allow-errors writes the bodies anyway):\n{}",
-        failed.len(),
-        failed.join("\n")
+    Err(locale.protocol_format(
+        "{count} timeline feature(s) failed, so nothing was written (--allow-errors writes the bodies anyway):\n{details}",
+        &[("count", &failed.len().to_string()), ("details", &failed.join("\n"))],
     ))
 }
 
-fn cmd_eval(args: &[String]) -> Result<(), String> {
+fn localize_script_results(locale: Locale, script: &Value, results: &mut [Value]) {
+    let steps = script.as_array().or_else(|| script.get("commands").and_then(Value::as_array));
+    for (step, result) in steps.into_iter().flatten().zip(results.iter_mut()) {
+        if let Some(command) = step.get("command").or_else(|| step.get("id")).and_then(Value::as_str) {
+            locale.command_result(command, result);
+        }
+    }
+}
+
+fn cmd_eval(args: &[String], locale: Locale) -> Result<(), String> {
     let json_out = json_out(args)?;
     let path = flag(args, "--in").or_else(|| positional(args).map(String::as_str)).ok_or_else(|| USAGE.to_string())?;
     let mut s = load(path)?;
-    let m = s.execute("inspect.measure", &json!({})).map_err(|e| e.to_string())?;
-    let d = s.execute("document.inspect", &json!({})).map_err(|e| e.to_string())?;
+    let mut m = s.execute("inspect.measure", &json!({})).map_err(|e| e.to_string())?;
+    let mut d = s.execute("document.inspect", &json!({})).map_err(|e| e.to_string())?;
+    locale.command_result("inspect.measure", &mut m);
+    locale.command_result("document.inspect", &mut d);
     let out = json!({
         "body_count": m["body_count"],
         "bodies": m["bodies"],
@@ -397,7 +475,7 @@ fn cmd_script(args: &[String]) -> Result<(), String> {
 }
 
 /// `gpu`: the headless adapter survey and the policy's pick.
-fn cmd_gpu(args: &[String]) -> Result<(), String> {
+fn cmd_gpu(args: &[String], locale: Locale) -> Result<(), String> {
     use solidcraft_gpu::select::{Policy, survey};
     let policy = match args {
         [] => Policy::from_env()?,
@@ -421,7 +499,7 @@ fn cmd_gpu(args: &[String]) -> Result<(), String> {
     );
     match s.lands_on {
         Some(solidcraft_gpu::select::Landing::Cpu) => {
-            eprintln!("warning: {}", solidcraft_engine::capture::CPU_WARNING);
+            eprintln!("{}: {}", locale.protocol_label("warning"), locale.protocol_error(solidcraft_engine::capture::CPU_WARNING));
             Ok(())
         }
         Some(_) => Ok(()),
@@ -441,7 +519,7 @@ fn install_renderer() {
     }));
 }
 
-fn cmd_snapshot(args: &[String]) -> Result<(), String> {
+fn cmd_snapshot(args: &[String], locale: Locale) -> Result<(), String> {
     install_renderer();
     known_flags(
         "snapshot",
@@ -484,7 +562,8 @@ fn cmd_snapshot(args: &[String]) -> Result<(), String> {
     std::fs::write(out, &png.bytes).map_err(|e| format!("{out}: {e}"))?;
     let mut reply = json!({"path": out, "width": w, "height": h, "bytes": png.bytes.len(), "renderer": png.renderer});
     if let Some(w) = solidcraft_engine::capture::warning(png.renderer) {
-        eprintln!("warning: {w}");
+        let w = locale.protocol_error(w);
+        eprintln!("{}: {w}", locale.protocol_label("warning"));
         reply["warning"] = json!(w);
     }
     println!("{}", pretty(&reply));
@@ -532,7 +611,7 @@ fn ico(images: &[(usize, Vec<u8>)]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn cmd_exec(args: &[String]) -> Result<(), String> {
+fn cmd_exec(args: &[String], locale: Locale) -> Result<(), String> {
     install_renderer();
     let id = args.first().ok_or_else(|| USAGE.to_string())?;
     let p: Value = match args.get(1) {
@@ -540,7 +619,8 @@ fn cmd_exec(args: &[String]) -> Result<(), String> {
         None => json!({}),
     };
     let mut s = Session::default();
-    let v = s.execute(id, &p).map_err(|e| e.to_string())?;
+    let mut v = s.execute(id, &p).map_err(|e| e.to_string())?;
+    locale.command_result(id, &mut v);
     println!("{}", pretty(&v));
     Ok(())
 }
@@ -548,21 +628,30 @@ fn cmd_exec(args: &[String]) -> Result<(), String> {
 /// MCP server on stdio: headless (optionally starting from a design or script) or bridged to
 /// a running app's control port. stdout carries only protocol messages. Files the agent's tool
 /// calls reach are confined to `solidcraft_mcp::agent_scope` unless `--allow-any-path` is given.
-fn cmd_mcp(args: &[String]) -> Result<(), String> {
+fn cmd_mcp(args: &[String], locale: Locale) -> Result<(), String> {
     install_renderer();
     let scope = (!args.iter().any(|a| a == "--allow-any-path"))
         .then(|| solidcraft_mcp::agent_scope(flags(args, "--allow-path").into_iter().map(std::path::PathBuf::from)));
     if let Some(s) = &scope {
         let roots: Vec<String> = s.roots().iter().map(|r| r.display().to_string()).collect();
         eprintln!(
-            "solidcraft mcp: files limited to {} and the open design's folder (--allow-path DIR adds one, --allow-any-path lifts the limit)",
-            roots.join(", ")
+            "{}",
+            locale.protocol_format(
+                "solidcraft mcp: files limited to {roots} and the open design's folder (--allow-path DIR adds one, --allow-any-path lifts the limit)",
+                &[("roots", &roots.join(", "))]
+            )
         );
         let design_dir = flag(args, "--in")
             .and_then(|p| std::path::Path::new(p).parent())
             .map(|d| if d.as_os_str().is_empty() { std::path::Path::new(".") } else { d });
         if let Some(why) = design_dir.and_then(solidcraft_engine::io::vfs::design_folder_refusal) {
-            eprintln!("solidcraft mcp: the design's folder is left out because {why}; add it with --allow-path if you mean it");
+            eprintln!(
+                "{}",
+                locale.protocol_format(
+                    "solidcraft mcp: the design's folder is left out because {why}; add it with --allow-path if you mean it",
+                    &[("why", &locale.protocol_error(&why))]
+                )
+            );
         }
     }
     // How a headless session treats calls that break a command's parameter contract (docs/mcp.md).
@@ -586,8 +675,12 @@ fn cmd_mcp(args: &[String]) -> Result<(), String> {
             let mut remote = solidcraft_mcp::Remote::new(addr, flag(args, "--token"));
             if let Err(e) = remote.try_connect() {
                 eprintln!(
-                    "solidcraft mcp: no SolidCraft app at {addr} yet ({e}); start it with `solidcraft --control {port}` \
-                     (or SOLIDCRAFT_CONTROL_PORT={port}), tool calls connect once it runs"
+                    "{}",
+                    locale.protocol_format(
+                        "solidcraft mcp: no SolidCraft app at {addr} yet ({e}); start it with `solidcraft --control {port}` \
+                         (or SOLIDCRAFT_CONTROL_PORT={port}), tool calls connect once it runs",
+                        &[("addr", addr), ("e", &e.to_string()), ("port", &port.to_string())],
+                    )
                 );
             }
             Box::new(remote)
@@ -601,7 +694,11 @@ fn cmd_mcp(args: &[String]) -> Result<(), String> {
     };
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    solidcraft_mcp::Server::new(backend).with_path_scope(scope).serve(stdin.lock(), stdout.lock()).map_err(|e| e.to_string())
+    solidcraft_mcp::Server::new(backend)
+        .with_language(locale.id())
+        .with_path_scope(scope)
+        .serve(stdin.lock(), stdout.lock())
+        .map_err(|e| e.to_string())
 }
 
 /// `save-stress <path> <rounds>`: save a design of a few hundred kilobytes `rounds` times, its
@@ -687,7 +784,7 @@ fn bench_ops(mut s: Session, script: &str) -> Result<Session, String> {
 }
 
 /// Separate file reading, JSON decoding/repair, timeline evaluation and display meshing.
-pub(crate) fn cmd_bench_open(args: &[String]) -> Result<(), String> {
+pub(crate) fn cmd_bench_open(args: &[String], locale: Locale) -> Result<(), String> {
     let path = args.first().ok_or("usage: solidcraft-cli bench-open <design.solidcraft | part.step> [--parse-only]")?;
     let t = std::time::Instant::now();
     let step = solidcraft_engine::io::is_step_path(path);
@@ -720,7 +817,8 @@ pub(crate) fn cmd_bench_open(args: &[String]) -> Result<(), String> {
     let adopted = saved.is_some() && s.model.last_recomputed == 0;
     println!("{}", json!({"step": "evaluate", "ms": t.elapsed().as_secs_f64() * 1000.0, "adopted": adopted}));
     for r in &s.model.results {
-        println!("{}", json!({"step": "feature", "id": r.id, "name": r.name, "ms": r.ms, "error": r.error}));
+        let error = r.error.as_deref().map(|error| locale.protocol_error(error));
+        println!("{}", json!({"step": "feature", "id": r.id, "name": r.name, "ms": r.ms, "error": error}));
     }
     let t = std::time::Instant::now();
     let st = s.world_state();

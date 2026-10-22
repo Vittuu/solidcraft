@@ -3754,11 +3754,11 @@ fn overlays(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
     // Sketch status.
     if let Some(r) = app.viewport.layout.as_ref().map(|l| l.content) {
         let msg = if !ss.report.ok() {
-            format!("{} — constraints conflict", ss.name)
+            crate::i18n::format("sketch.conflict_status", &[("name", &ss.name)])
         } else if ss.report.dof == 0 {
-            format!("{} — fully constrained", ss.name)
+            crate::i18n::format("sketch.fully_constrained_status", &[("name", &ss.name)])
         } else {
-            format!("{} — {} degrees of freedom", ss.name, ss.report.dof)
+            crate::i18n::format("sketch.dof_status", &[("name", &ss.name), ("count", &ss.report.dof.to_string())])
         };
         let c = if ss.report.ok() { t.sketch_accent } else { t.error };
         painter.text(pos2(r.left() + 12.0, r.top() + 12.0), Align2::LEFT_TOP, msg, FontId::proportional(t.font_button), c);
@@ -3953,11 +3953,7 @@ fn signed_axis_view(app: &mut SolveApp, ui: &mut egui::Ui, rect: Rect) {
     {
         crate::scenario::publish_handle(&format!("axis_view_hover:{name}"), hover.unwrap_or(c));
         ui.interact(Rect::from_center_size(hover.unwrap_or(c), vec2(2.0, 2.0)), ui.id().with("axis_view_tip"), Sense::hover()).on_hover_text(
-            format!(
-                "View from {}. Click again to reverse. Drag to orbit{}.",
-                name.to_uppercase(),
-                if app.preferences.free_orbit { "" } else { "; hold Shift to snap" }
-            ),
+            crate::i18n::format(if app.preferences.free_orbit { "view.axis_free_hint" } else { "view.axis_hint" }, &[("axis", &name.to_uppercase())]),
         );
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         if ui.input(|i| i.pointer.primary_clicked()) {
@@ -4089,7 +4085,7 @@ fn nav_bar(app: &mut SolveApp, ui: &mut egui::Ui, rect: Rect) {
             painter.rect_filled(br, t.radius_sm, if active { t.accent_soft } else { t.hover });
         }
         icons::paint_icon(&painter, br.shrink(4.0), icon, f32::from(t.icon.a()) / 255.0);
-        if resp.on_hover_text(*tip).clicked() {
+        if resp.on_hover_text(crate::i18n::tr_label(tip)).clicked() {
             let toggle = |m: NavMode, cur: Option<NavMode>| if cur == Some(m) { None } else { Some(m) };
             match *icon {
                 "orbit" => app.viewport.nav = toggle(NavMode::Orbit, app.viewport.nav),

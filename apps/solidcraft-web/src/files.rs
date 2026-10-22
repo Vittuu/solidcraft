@@ -11,6 +11,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use js_sys::{Array, Function, Object, Reflect, Uint8Array};
+use solidcraft_engine::i18n::Locale;
 use solidcraft_engine::io::vfs;
 
 use crate::disk;
@@ -73,9 +74,21 @@ pub struct Files {
     pub recovery: RefCell<Option<(String, Option<String>)>>,
     /// The app's context, to wake it when a browser call finishes.
     pub ctx: RefCell<Option<egui::Context>>,
+    /// Preferred presentation language; async work copies a locale before awaiting.
+    language: RefCell<String>,
 }
 
 impl Files {
+    pub fn set_language(&self, language: &str) {
+        if *self.language.borrow() != language {
+            *self.language.borrow_mut() = language.to_string();
+        }
+    }
+
+    pub fn locale(&self) -> Locale {
+        Locale::for_language(&self.language.borrow())
+    }
+
     pub fn say(&self, text: impl Into<String>, error: bool) {
         self.messages.borrow_mut().push((text.into(), error));
         self.wake();
@@ -113,8 +126,8 @@ const LOCAL_PREFIX: &str = "solidcraft.file.";
 /// still listed and opened; removing one removes either key.
 const LEGACY_LOCAL_PREFIX: &str = "solvecraft.file.";
 
-fn local() -> Result<web_sys::Storage, String> {
-    web_sys::window().and_then(|w| w.local_storage().ok().flatten()).ok_or_else(|| "this browser keeps no local storage".to_string())
+fn local(locale: Locale) -> Result<web_sys::Storage, String> {
+    web_sys::window().and_then(|w| w.local_storage().ok().flatten()).ok_or_else(|| locale.text("web.no_local_storage").to_string())
 }
 
 /// Text as is, anything else as hex (local storage holds strings).
@@ -162,14 +175,15 @@ fn has(sm: &web_sys::StorageManager, method: &str) -> bool {
     Reflect::get(sm, &method.into()).is_ok_and(|f| f.is_function())
 }
 
-async fn root() -> Result<FileSystemDirectoryHandle, String> {
-    let sm = storage_manager().filter(|sm| has(sm, "getDirectory")).ok_or("this page has no private file storage (it needs https or localhost)")?;
+async fn root(locale: Locale) -> Result<FileSystemDirectoryHandle, String> {
+    let sm = storage_manager().filter(|sm| has(sm, "getDirectory")).ok_or_else(|| locale.text("web.no_private_storage").to_string())?;
     let dir = JsFuture::from(sm.get_directory()).await.map_err(err)?;
-    dir.dyn_into::<FileSystemDirectoryHandle>().map_err(|_| "this browser has no private file storage (OPFS)".to_string())
+    dir.dyn_into::<FileSystemDirectoryHandle>().map_err(|_| locale.text("web.no_opfs").to_string())
 }
 
 pub(crate) async fn read_handle(h: &FileSystemFileHandle) -> Result<Vec<u8>, String> {
-    let file: web_sys::File = JsFuture::from(h.get_file()).await.map_err(err)?.dyn_into().map_err(|_| "not a file".to_string())?;
+    let locale = Locale::for_language(solidcraft_ui_egui::i18n::language());
+    let file: web_sys::File = JsFuture::from(h.get_file()).await.map_err(err)?.dyn_into().map_err(|_| locale.text("web.not_file").to_string())?;
     blob_bytes(&file).await
 }
 
@@ -178,41 +192,41 @@ async fn blob_bytes(b: &web_sys::Blob) -> Result<Vec<u8>, String> {
     Ok(Uint8Array::new(&buf).to_vec())
 }
 
-async fn file_handle(dir: &FileSystemDirectoryHandle, name: &str, create: bool) -> Result<FileSystemFileHandle, String> {
+async fn file_handle(locale: Locale, dir: &FileSystemDirectoryHandle, name: &str, create: bool) -> Result<FileSystemFileHandle, String> {
     let opts = FileSystemGetFileOptions::new();
     opts.set_create(create);
-    JsFuture::from(dir.get_file_handle_with_options(name, &opts)).await.map_err(err)?.dyn_into().map_err(|_| "not a file".to_string())
+    JsFuture::from(dir.get_file_handle_with_options(name, &opts)).await.map_err(err)?.dyn_into().map_err(|_| locale.text("web.not_file").to_string())
 }
 
-async fn write_file(name: &str, bytes: &[u8]) -> Result<(), String> {
+async fn write_file(locale: Locale, name: &str, bytes: &[u8]) -> Result<(), String> {
     if local_only() {
-        return local()?
+        return local(locale)?
             .set_item(&format!("{LOCAL_PREFIX}{name}"), &encode(bytes))
-            .map_err(|e| format!("local storage is full or blocked: {}", err(e)));
+            .map_err(|e| locale.format("web.storage_blocked", &[("error", &err(e))]));
     }
-    let dir = root().await?;
-    let h = file_handle(&dir, name, true).await?;
+    let dir = root(locale).await?;
+    let h = file_handle(locale, &dir, name, true).await?;
     let w: FileSystemWritableFileStream =
-        JsFuture::from(h.create_writable()).await.map_err(err)?.dyn_into().map_err(|_| "no writable stream".to_string())?;
+        JsFuture::from(h.create_writable()).await.map_err(err)?.dyn_into().map_err(|_| locale.text("web.no_writable_stream").to_string())?;
     JsFuture::from(w.write_with_u8_array(bytes).map_err(err)?).await.map_err(err)?;
     JsFuture::from(w.close()).await.map_err(err)?;
     Ok(())
 }
 
-async fn remove_file(name: &str) -> Result<(), String> {
+async fn remove_file(locale: Locale, name: &str) -> Result<(), String> {
     if local_only() {
-        let st = local()?;
+        let st = local(locale)?;
         st.remove_item(&format!("{LEGACY_LOCAL_PREFIX}{name}")).map_err(err)?;
         return st.remove_item(&format!("{LOCAL_PREFIX}{name}")).map_err(err);
     }
-    let dir = root().await?;
+    let dir = root(locale).await?;
     JsFuture::from(dir.remove_entry(name)).await.map_err(err)?;
     Ok(())
 }
 
 /// Every stored file in local storage.
-fn read_local() -> Result<Vec<(String, Vec<u8>, f64)>, String> {
-    let st = local()?;
+fn read_local(locale: Locale) -> Result<Vec<(String, Vec<u8>, f64)>, String> {
+    let st = local(locale)?;
     let mut out = Vec::new();
     for i in 0..st.length().unwrap_or(0).min(10_000) {
         let Some(k) = st.key(i).ok().flatten() else { continue };
@@ -225,17 +239,17 @@ fn read_local() -> Result<Vec<(String, Vec<u8>, f64)>, String> {
 }
 
 /// Every stored file: (name, bytes). Without OPFS, local storage takes over from here on.
-async fn read_all() -> Result<Vec<(String, Vec<u8>, f64)>, String> {
-    let dir = match root().await {
+async fn read_all(locale: Locale) -> Result<Vec<(String, Vec<u8>, f64)>, String> {
+    let dir = match root(locale).await {
         Ok(d) => d,
         Err(e) => {
-            log::warn!("no OPFS ({e}): designs go to local storage");
+            log::warn!("{}", locale.protocol_error(&format!("no OPFS ({e}): designs go to local storage")));
             LOCAL.with(|l| l.set(true));
-            return read_local();
+            return read_local(locale);
         }
     };
     let iter: JsValue = dir.values().into();
-    let next: Function = Reflect::get(&iter, &"next".into()).map_err(err)?.dyn_into().map_err(|_| "no iterator".to_string())?;
+    let next: Function = Reflect::get(&iter, &"next".into()).map_err(err)?.dyn_into().map_err(|_| locale.text("web.no_iterator").to_string())?;
     let mut out = Vec::new();
     for _ in 0..10_000 {
         let step = JsFuture::from(js_sys::Promise::resolve(&next.call0(&iter).map_err(err)?)).await.map_err(err)?;
@@ -243,14 +257,17 @@ async fn read_all() -> Result<Vec<(String, Vec<u8>, f64)>, String> {
             break;
         }
         let Ok(h) = Reflect::get(&step, &"value".into()).map_err(err)?.dyn_into::<FileSystemFileHandle>() else { continue };
-        let file =
-            match JsFuture::from(h.get_file()).await.map_err(err).and_then(|f| f.dyn_into::<web_sys::File>().map_err(|_| "not a file".to_string())) {
-                Ok(f) => f,
-                Err(e) => {
-                    log::warn!("{}: {e}", h.name());
-                    continue;
-                }
-            };
+        let file = match JsFuture::from(h.get_file())
+            .await
+            .map_err(err)
+            .and_then(|f| f.dyn_into::<web_sys::File>().map_err(|_| locale.text("web.not_file").to_string()))
+        {
+            Ok(f) => f,
+            Err(e) => {
+                log::warn!("{}: {e}", h.name());
+                continue;
+            }
+        };
         match blob_bytes(&file).await {
             Ok(b) => out.push((h.name(), b, file.last_modified())),
             Err(e) => log::warn!("{}: {e}", h.name()),
@@ -262,6 +279,7 @@ async fn read_all() -> Result<Vec<(String, Vec<u8>, f64)>, String> {
 /// Ask the browser to keep the storage (not evict it under pressure), then load every stored
 /// file into the engine's files.
 pub fn start(files: &Rc<Files>) {
+    let locale = files.locale();
     if let Some(sm) = storage_manager().filter(|sm| has(sm, "persist"))
         && let Ok(p) = sm.persist()
     {
@@ -275,10 +293,10 @@ pub fn start(files: &Rc<Files>) {
             Ok(ids) => files.disk_known.borrow_mut().extend(ids),
             Err(e) => log::info!("no remembered files: {e}"),
         }
-        match read_all().await {
+        match read_all(locale).await {
             Ok(all) => {
                 if local_only() {
-                    files.say("This page can't use the browser's file storage (it needs https or localhost): designs are kept in local storage, a few MB at most.", false);
+                    files.say(locale.text("web.storage_fallback"), false);
                 }
                 let mut entries = Vec::new();
                 let has_recovery = all.iter().any(|(n, _, _)| n == RECOVERY);
@@ -307,7 +325,7 @@ pub fn start(files: &Rc<Files>) {
                     *files.recovery.borrow_mut() = None;
                 }
             }
-            Err(e) => files.say(format!("browser storage: {e}"), true),
+            Err(e) => files.say(locale.format("web.storage_error", &[("error", &e)]), true),
         }
         files.ready.set(true);
         files.wake();
@@ -316,6 +334,7 @@ pub fn start(files: &Rc<Files>) {
 
 /// Store what commands wrote: OPFS paths into OPFS, download paths as downloads.
 pub fn flush(files: &Rc<Files>) {
+    let locale = files.locale();
     for (path, bytes) in vfs::take_writes() {
         match disk::route(&path) {
             disk::WriteTo::Opfs => {
@@ -330,16 +349,16 @@ pub fn flush(files: &Rc<Files>) {
                 }
                 let files = files.clone();
                 spawn_local(async move {
-                    if let Err(e) = write_file(&name, &bytes).await {
-                        files.say(format!("{name}: {e}"), true);
+                    if let Err(e) = write_file(locale, &name, &bytes).await {
+                        files.say(locale.format("web.file_error", &[("name", &name), ("error", &e)]), true);
                     }
                 });
             }
             disk::WriteTo::Disk => disk::enqueue(files, &path, bytes),
             disk::WriteTo::Download => {
                 let name = path.strip_prefix(DOWNLOADS).unwrap_or(&path);
-                if let Err(e) = download(name, &bytes) {
-                    files.say(format!("{name}: {e}"), true);
+                if let Err(e) = download(locale, name, &bytes) {
+                    files.say(locale.format("web.file_error", &[("name", &name), ("error", &e)]), true);
                 }
             }
             disk::WriteTo::Memory => {}
@@ -348,15 +367,15 @@ pub fn flush(files: &Rc<Files>) {
 }
 
 /// Hand `bytes` to the user as a download named `name`.
-pub fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
-    let doc = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
+pub fn download(locale: Locale, name: &str, bytes: &[u8]) -> Result<(), String> {
+    let doc = web_sys::window().and_then(|w| w.document()).ok_or_else(|| locale.text("web.no_document").to_string())?;
     let parts = Array::new();
     parts.push(&Uint8Array::from(bytes));
     let opts = web_sys::BlobPropertyBag::new();
     opts.set_type("application/octet-stream");
     let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &opts).map_err(err)?;
     let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(err)?;
-    let a: web_sys::HtmlAnchorElement = doc.create_element("a").map_err(err)?.dyn_into().map_err(|_| "no anchor".to_string())?;
+    let a: web_sys::HtmlAnchorElement = doc.create_element("a").map_err(err)?.dyn_into().map_err(|_| locale.text("web.no_anchor").to_string())?;
     a.set_href(&url);
     a.set_download(name);
     a.click();
@@ -372,12 +391,13 @@ pub fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
 
 /// Delete a stored design.
 pub fn delete(files: &Rc<Files>, name: &str) {
+    let locale = files.locale();
     let _ = vfs::remove(&format!("{OPFS}{name}"));
     files.entries.borrow_mut().retain(|e| e.name != name);
     let (files, name) = (files.clone(), name.to_string());
     spawn_local(async move {
-        if let Err(e) = remove_file(&name).await {
-            files.say(format!("{name}: {e}"), true);
+        if let Err(e) = remove_file(locale, &name).await {
+            files.say(locale.format("web.file_error", &[("name", &name), ("error", &e)]), true);
         }
     });
 }
@@ -385,12 +405,13 @@ pub fn delete(files: &Rc<Files>, name: &str) {
 /// Rename a stored design (a copy under the new name, then the old one goes: not every browser
 /// can move OPFS files).
 pub fn rename(files: &Rc<Files>, from: &str, to: &str) -> Result<(), String> {
+    let locale = files.locale();
     let to = to.trim();
     if to.is_empty() || to.contains('/') || to.contains('\\') || to.len() > 200 {
-        return Err("give a file name without slashes".into());
+        return Err(locale.text("web.name_without_slashes").into());
     }
     if files.entries.borrow().iter().any(|e| e.name == to) {
-        return Err(format!("there is already a file named {to}"));
+        return Err(locale.format("web.file_exists", &[("name", to)]));
     }
     let bytes = vfs::read(&format!("{OPFS}{from}"), solidcraft_engine::io::MAX_DESIGN_BYTES).map_err(|e| e.to_string())?;
     vfs::write(&format!("{OPFS}{to}"), &bytes).map_err(|e| e.to_string())?;
@@ -401,31 +422,32 @@ pub fn rename(files: &Rc<Files>, from: &str, to: &str) -> Result<(), String> {
 
 /// Keep (or drop) the autosave of the open design.
 pub fn autosave(files: &Rc<Files>, doc: Option<(&solidcraft_engine::doc::Document, Option<&str>)>) {
+    let locale = files.locale();
     let files = files.clone();
     match doc {
         Some((d, path)) => {
             let bytes = match solidcraft_engine::io::write_design_container(d) {
                 Ok(bytes) => bytes,
                 Err(e) => {
-                    files.say(format!("autosave: {e}"), true);
+                    files.say(locale.format("web.autosave_error", &[("error", &e.to_string())]), true);
                     return;
                 }
             };
             let meta = serde_json::json!({"name": d.name, "path": path, "saved_at": js_sys::Date::now()}).to_string();
             spawn_local(async move {
                 let r = async {
-                    write_file(RECOVERY, &bytes).await?;
-                    write_file(RECOVERY_META, meta.as_bytes()).await
+                    write_file(locale, RECOVERY, &bytes).await?;
+                    write_file(locale, RECOVERY_META, meta.as_bytes()).await
                 };
                 if let Err(e) = r.await {
-                    files.say(format!("autosave: {e}"), true);
+                    files.say(locale.format("web.autosave_error", &[("error", &e.to_string())]), true);
                 }
             });
         }
         None => spawn_local(async move {
-            let _ = remove_file(RECOVERY).await;
-            let _ = remove_file(LEGACY_RECOVERY).await;
-            let _ = remove_file(RECOVERY_META).await;
+            let _ = remove_file(locale, RECOVERY).await;
+            let _ = remove_file(locale, LEGACY_RECOVERY).await;
+            let _ = remove_file(locale, RECOVERY_META).await;
         }),
     }
 }
@@ -451,6 +473,7 @@ pub fn recovery_path() -> String {
 /// Pick files on the computer: the File System Access picker where there is one, else an
 /// `<input type=file>`. Read files arrive in `files.incoming`.
 pub fn pick_from_disk(files: &Rc<Files>, intent: Intent) {
+    let locale = files.locale();
     let Some(window) = web_sys::window() else { return };
     let picker = Reflect::get(&window, &"showOpenFilePicker".into()).ok().and_then(|f| f.dyn_into::<Function>().ok());
     match picker {
@@ -468,10 +491,10 @@ pub fn pick_from_disk(files: &Rc<Files>, intent: Intent) {
             let files = files.clone();
             spawn_local(async move {
                 let r = async {
-                    let p: js_sys::Promise = promise.map_err(err)?.dyn_into().map_err(|_| "no promise".to_string())?;
-                    let handles: Array = JsFuture::from(p).await.map_err(err)?.dyn_into().map_err(|_| "no files".to_string())?;
+                    let p: js_sys::Promise = promise.map_err(err)?.dyn_into().map_err(|_| locale.text("web.no_promise").to_string())?;
+                    let handles: Array = JsFuture::from(p).await.map_err(err)?.dyn_into().map_err(|_| locale.text("web.no_files").to_string())?;
                     for h in handles.iter() {
-                        let h: FileSystemFileHandle = h.dyn_into().map_err(|_| "not a file".to_string())?;
+                        let h: FileSystemFileHandle = h.dyn_into().map_err(|_| locale.text("web.not_file").to_string())?;
                         let bytes = read_handle(&h).await?;
                         if on_disk && solidcraft_engine::io::is_design_path(&h.name()) {
                             let path = disk::arrive(&h, bytes);
@@ -487,7 +510,7 @@ pub fn pick_from_disk(files: &Rc<Files>, intent: Intent) {
                     Ok(()) => {}
                     // Closing the picker is no error.
                     Err(e) if e.contains("abort") || e.contains("Abort") => {}
-                    Err(e) => files.say(format!("open: {e}"), true),
+                    Err(e) => files.say(locale.format("web.open_error", &[("error", &e)]), true),
                 }
             });
         }
@@ -496,6 +519,7 @@ pub fn pick_from_disk(files: &Rc<Files>, intent: Intent) {
 }
 
 fn input_picker(files: &Rc<Files>, intent: Intent) {
+    let locale = files.locale();
     let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
     let Ok(input) = doc.create_element("input").map(|e| e.unchecked_into::<web_sys::HtmlInputElement>()) else { return };
     input.set_type("file");
@@ -515,7 +539,7 @@ fn input_picker(files: &Rc<Files>, intent: Intent) {
             spawn_local(async move {
                 match blob_bytes(&f).await {
                     Ok(b) => files.arrive(f.name(), b, intent),
-                    Err(e) => files.say(format!("{}: {e}", f.name()), true),
+                    Err(e) => files.say(locale.format("web.file_error", &[("name", &f.name()), ("error", &e)]), true),
                 }
             });
         }
@@ -526,13 +550,14 @@ fn input_picker(files: &Rc<Files>, intent: Intent) {
 
 /// Read files dropped on the page.
 pub fn take_drops(files: &Rc<Files>, raw: &mut egui::RawInput) {
+    let locale = files.locale();
     for f in std::mem::take(&mut raw.dropped_files) {
         let files = files.clone();
         spawn_local(async move {
             let name = f.path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dropped".into());
             match f.bytes_async().await {
                 Ok(b) => files.arrive(name, b, Intent::Insert),
-                Err(e) => files.say(format!("{name}: {e}"), true),
+                Err(e) => files.say(locale.format("web.file_error", &[("name", &name), ("error", &e)]), true),
             }
         });
     }

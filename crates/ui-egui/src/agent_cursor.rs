@@ -107,7 +107,7 @@ pub fn speed_slider(ui: &mut egui::Ui, speed: &mut Speed) -> egui::Response {
         1.0..=5.5,
         crate::ui_kit::Slider {
             step: Some(0.5),
-            format: |v| if v > 5.25 { crate::i18n::tr_label("Instant").into() } else { Speed::Times(v).label() },
+            format: |v| if v > 5.25 { crate::i18n::tr("ui.instant").into() } else { Speed::Times(v).label() },
             ..Default::default()
         },
     );
@@ -423,7 +423,7 @@ fn finish(app: &mut SolveApp, ctx: &egui::Context) {
     // What was computed ahead while the pointer glided is found rather than computed again here.
     let out = app.run_with_kept(job.ahead.map(|a| a.kept), |app| match crate::control::handle(app, ctx, &req) {
         crate::control::Outcome::Done(v) => v,
-        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": "not a command"}),
+        crate::control::Outcome::Screenshot { .. } => json!({"ok": false, "error": crate::i18n::diagnostic("not a command")}),
     });
     let ran = out.get("ok").and_then(Value::as_bool).unwrap_or(false);
     if follow && ran {

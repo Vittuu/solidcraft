@@ -5,12 +5,13 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 use solidcraft_engine::crash;
+use solidcraft_engine::i18n::{Locale, interpolate};
 
 const USAGE: &str = "usage: solidcraft-cli crashes [list [--json] | show <id> | replay <id> | dir | clear [<id>]]";
 
-pub fn run(args: &[String]) -> Result<(), String> {
-    let dir = crash::default_dir().ok_or("no crash folder on this system")?;
-    let id = || args.get(1).map(String::as_str).ok_or_else(|| USAGE.to_string());
+pub fn run(args: &[String], locale: Locale) -> Result<(), String> {
+    let dir = crash::default_dir().ok_or_else(|| locale.protocol_label("no crash folder on this system").to_string())?;
+    let id = || args.get(1).map(String::as_str).ok_or_else(|| locale.protocol_label(USAGE).to_string());
     match args.first().map(String::as_str) {
         None | Some("list") => {
             let reports = crash::list(&dir);
@@ -18,15 +19,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 println!("{}", super::pretty(&json!({ "dir": dir.to_string_lossy(), "reports": reports })));
                 return Ok(());
             }
-            println!("crash reports in {}", dir.display());
+            println!("{}", interpolate(locale.protocol_label("crash reports in {dir}"), &[("dir", &dir.display().to_string())]));
             if reports.is_empty() {
-                println!("  (none)");
+                println!("{}", locale.protocol_label("  (none)"));
             }
             for r in reports {
                 let times = if r.count > 1 { format!(" ×{}", r.count) } else { String::new() };
-                let cmd = r.command.map(|c| format!(" in {c}")).unwrap_or_default();
-                let replay = if r.replayable { "  [replayable]" } else { "" };
-                println!("  {}  {}{times}{cmd}  v{}{replay}\n      {}", r.id, r.kind, r.version, r.message);
+                let cmd = r.command.map(|c| interpolate(locale.protocol_label(" in {c}"), &[("c", &c)])).unwrap_or_default();
+                let replay = if r.replayable { locale.protocol_label("  [replayable]") } else { "" };
+                println!("  {}  {}{times}{cmd}  v{}{replay}\n      {}", r.id, r.kind, r.version, locale.protocol_error(&r.message));
             }
             Ok(())
         }
@@ -34,16 +35,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
             println!("{}", super::pretty(&crash::read(&dir, id()?)?));
             Ok(())
         }
-        Some("replay") => replay(&crash::read(&dir, id()?)?),
+        Some("replay") => replay(&crash::read(&dir, id()?)?, locale),
         Some("dir") => {
             println!("{}", dir.display());
             Ok(())
         }
         Some("clear") => {
-            println!("deleted {} report(s)", crash::clear(&dir, args.get(1).map(String::as_str)));
+            let count = crash::clear(&dir, args.get(1).map(String::as_str)).to_string();
+            println!("{}", interpolate(locale.protocol_label("deleted {count} report(s)"), &[("count", &count)]));
             Ok(())
         }
-        _ => Err(USAGE.to_string()),
+        _ => Err(locale.protocol_label(USAGE).to_string()),
     }
 }
 
@@ -51,9 +53,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
 static PANICS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 /// Run a report's commands on its design and say whether the crash happens again.
-fn replay(report: &Value) -> Result<(), String> {
+fn replay(report: &Value, locale: Locale) -> Result<(), String> {
     let id = report["id"].as_str().unwrap_or_default();
-    let replay_path = report["replay_path"].as_str().ok_or_else(|| format!("report {id} cannot be replayed (see its notes)"))?;
+    let replay_path = report["replay_path"]
+        .as_str()
+        .ok_or_else(|| interpolate(locale.protocol_label("report {id} cannot be replayed (see its notes)"), &[("id", id)]))?;
     let script = super::read_json(replay_path)?;
     let commands = script["commands"].as_array().cloned().unwrap_or_default();
     let mut s = match report["design_path"].as_str() {
@@ -68,19 +72,17 @@ fn replay(report: &Value) -> Result<(), String> {
         }
     }));
     if report["kind"] == "unclean_exit" {
-        println!("this crash ended the app without a report: if this process ends abruptly, it reproduced");
+        println!("{}", locale.protocol_label("this crash ended the app without a report: if this process ends abruptly, it reproduced"));
     }
-    println!(
-        "replaying {} command(s) on {}",
-        commands.len(),
-        report["design_path"].as_str().map_or_else(|| "a new design".to_string(), |d| d.to_string())
-    );
+    let count = commands.len().to_string();
+    let design = report["design_path"].as_str().unwrap_or_else(|| locale.protocol_label("a new design"));
+    println!("{}", interpolate(locale.protocol_label("replaying {count} command(s) on {design}"), &[("count", &count), ("design", design)]));
     for (i, c) in commands.iter().enumerate() {
         let cmd = c["command"].as_str().unwrap_or_default();
         let r = s.execute(cmd, c.get("params").unwrap_or(&Value::Null));
         match r {
-            Ok(_) => println!("  {:>3}. {cmd}: ok", i + 1),
-            Err(e) => println!("  {:>3}. {cmd}: {e}", i + 1),
+            Ok(_) => println!("  {:>3}. {cmd}: {}", i + 1, locale.protocol_error("ok")),
+            Err(e) => println!("  {:>3}. {cmd}: {}", i + 1, locale.protocol_error(&e.to_string())),
         }
     }
     let _ = std::panic::take_hook();
@@ -89,15 +91,23 @@ fn replay(report: &Value) -> Result<(), String> {
     let same = seen.iter().any(|(l, m)| format!("{:016x}", crash::signature(l, m)) == want);
     if same {
         println!(
-            "reproduced: the same internal error ({}) at {}",
-            report["message"].as_str().unwrap_or_default(),
-            report["location"].as_str().unwrap_or_default()
+            "{}",
+            interpolate(
+                locale.protocol_label("reproduced: the same internal error ({message}) at {location}"),
+                &[("message", report["message"].as_str().unwrap_or_default()), ("location", report["location"].as_str().unwrap_or_default())]
+            )
         );
     } else if let Some((l, m)) = seen.first() {
-        println!("an internal error happened, but not the reported one: {m} at {l}");
-        println!("(the report says: {} at {})", report["message"].as_str().unwrap_or_default(), report["location"].as_str().unwrap_or_default());
+        println!("{}", interpolate(locale.protocol_label("an internal error happened, but not the reported one: {m} at {l}"), &[("m", m), ("l", l)]));
+        println!(
+            "{}",
+            interpolate(
+                locale.protocol_label("(the report says: {message} at {location})"),
+                &[("message", report["message"].as_str().unwrap_or_default()), ("location", report["location"].as_str().unwrap_or_default())]
+            )
+        );
     } else {
-        println!("did not reproduce: no internal error (fixed, or it depends on something the replay does not have)");
+        println!("{}", locale.protocol_label("did not reproduce: no internal error (fixed, or it depends on something the replay does not have)"));
     }
     Ok(())
 }

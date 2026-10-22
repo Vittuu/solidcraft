@@ -51,7 +51,8 @@ pub(crate) fn label(ui: &Ui) -> &str {
 
 /// Publish accessibility and scenario geometry. Tokens: `none`.
 pub(super) fn publish(ui: &Ui, response: &Response, kind: egui::WidgetType) {
-    let label = label(ui);
+    let label =
+        ui.stack().iter().find_map(|node| node.tags().get_downcast::<String>("sc_form_display")).map(String::as_str).unwrap_or_else(|| label(ui));
     response.widget_info(|| egui::WidgetInfo::labeled(kind, ui.is_enabled(), crate::i18n::tr_label(label)));
     publish_geometry(ui, response);
 }
@@ -83,24 +84,31 @@ pub(crate) fn choice_row(ui: &mut Ui, label: &str, id: &str, selected: &mut usiz
 
 /// Internal form geometry for controls which need several lines (e.g. text areas).
 pub(super) fn sized_row<R>(ui: &mut Ui, text: &str, height: f32, control: impl FnOnce(&mut Ui) -> R) -> R {
+    sized_row_display(ui, text, crate::i18n::tr_label(text), height, control)
+}
+
+/// A contextual translation with the source row's unchanged IDs and scenario handles.
+/// Tokens: sized_row tokens.
+pub(crate) fn row_display<R>(ui: &mut Ui, source: &str, display: &str, control: impl FnOnce(&mut Ui) -> R) -> R {
+    sized_row_display(ui, source, display, row_height(), control)
+}
+
+fn sized_row_display<R>(ui: &mut Ui, text: &str, display: &str, height: f32, control: impl FnOnce(&mut Ui) -> R) -> R {
     let t = Tokens::get();
     let width = dimension(ui.available_width());
     let (rect, _) = ui.allocate_exact_size(vec2(width, height), egui::Sense::hover());
-    let label_width = label_column(ui, text, width);
+    let label_width = label_column(ui, display, width);
     let label_rect = egui::Rect::from_min_size(rect.min, vec2(label_width, rect.height()));
     ui.scope_builder(egui::UiBuilder::new().max_rect(label_rect).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
         // Left aligned in the label column, as in the design.
-        ui.add(egui::Label::new(RichText::new(crate::i18n::tr_label(text)).size(t.font_label).color(t.dialog_label)).truncate())
-            .on_hover_text(crate::i18n::tr_label(text));
+        ui.add(egui::Label::new(RichText::new(display).size(t.font_label).color(t.dialog_label)).truncate()).on_hover_text(display);
     });
     let control_rect = egui::Rect::from_min_max(egui::pos2((label_rect.right() + label_gap(ui, width)).min(rect.right()), rect.top()), rect.max);
     let result = ui
         .scope_builder(
-            egui::UiBuilder::new()
-                .id_salt(text)
-                .max_rect(control_rect)
-                .layout(egui::Layout::left_to_right(egui::Align::Center))
-                .ui_stack_info(egui::UiStackInfo::default().with_tag_value(LABEL, text.to_string())),
+            egui::UiBuilder::new().id_salt(text).max_rect(control_rect).layout(egui::Layout::left_to_right(egui::Align::Center)).ui_stack_info(
+                egui::UiStackInfo::default().with_tag_value(LABEL, text.to_string()).with_tag_value("sc_form_display", display.to_string()),
+            ),
             |ui| {
                 ui.set_clip_rect(ui.clip_rect().intersect(control_rect));
                 ui.spacing_mut().text_edit_width = control_rect.width();

@@ -332,6 +332,7 @@ mod tests {
 
     #[test]
     fn reviewer_messages_exist_in_every_locale() {
+        // UK English contains spelling overrides only; other messages inherit English.
         let keys = [
             "title",
             "scope",

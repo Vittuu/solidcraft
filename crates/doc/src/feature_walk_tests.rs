@@ -184,14 +184,33 @@ fn inputs_and_expressions_match_the_golden_record() {
 
 #[test]
 fn the_record_covers_every_variant() {
-    let src = include_str!("document.rs").replace("\r\n", "\n");
-    let body = src.split("pub enum FeatureKind {").nth(1).and_then(|s| s.split("\n}\n").next()).unwrap();
+    let src = include_str!("document.rs");
     let names: Vec<String> = fixtures().into_iter().map(|(_, v)| v["type"].as_str().unwrap().replace('_', "")).collect();
-    for line in body.lines().filter(|l| l.starts_with("    ") && !l.starts_with("     ")) {
-        let t = line.trim();
-        if t.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
-            let variant = t.split(|c: char| !c.is_alphanumeric()).next().unwrap_or("").to_lowercase();
-            assert!(names.contains(&variant), "FeatureKind::{t} has no fixture in feature_walk_tests");
-        }
+    for variant in feature_variant_names(src) {
+        assert!(names.contains(&variant), "FeatureKind::{variant} has no fixture in feature_walk_tests");
     }
+}
+
+/// Stop at the enum's unindented closing brace. `lines` handles both LF and CRLF checkouts;
+/// splitting on a literal LF delimiter otherwise includes the enums below FeatureKind.
+fn feature_variant_names(src: &str) -> Vec<String> {
+    let body = src.split_once("pub enum FeatureKind {").expect("FeatureKind must be present").1;
+    body.lines()
+        .take_while(|line| *line != "}")
+        .filter(|line| line.starts_with("    ") && !line.starts_with("     "))
+        .filter_map(|line| {
+            let t = line.trim();
+            t.chars().next().filter(|c| c.is_ascii_uppercase())?;
+            Some(t.split(|c: char| !c.is_alphanumeric()).next().unwrap_or("").to_lowercase())
+        })
+        .collect()
+}
+
+#[test]
+fn fixture_variant_scan_stops_at_the_enum_for_lf_and_crlf() {
+    let source =
+        "pub enum FeatureKind {\n    Box {\n        length: Expr,\n    },\n    Extrude(Extent),\n}\n\npub enum FilletStyle {\n    Constant,\n}\n";
+    let want = vec!["box".to_string(), "extrude".to_string()];
+    assert_eq!(feature_variant_names(source), want);
+    assert_eq!(feature_variant_names(&source.replace('\n', "\r\n")), want);
 }

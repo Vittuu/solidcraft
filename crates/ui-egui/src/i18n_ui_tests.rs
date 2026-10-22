@@ -86,6 +86,7 @@ fn window_chrome_renders_in_the_active_language() {
         ("fr", "Navigateur", "Filtre de sélection", "Faces"),
         ("it", "Struttura", "Filtro di selezione", "Facce"),
         ("uk", "Браузер", "Фільтр виділення", "Грані"),
+        ("pt-BR", "Navegador", "Filtro de seleção", "Faces"),
     ] {
         let mut h = Harness::new();
         h.app.preferences.language = lang.into();
@@ -191,6 +192,90 @@ fn home_page_renders_in_the_active_language() {
             assert!(!texts.iter().any(|t| t == english), "{lang}: {english:?} is still painted in English");
         }
     }
+}
+
+#[test]
+fn brazilian_portuguese_dialogs_keep_command_ids_and_english_scenario_handles() {
+    let mut h = Harness::new();
+    h.app.preferences.language = "pt-BR".into();
+    h.app.home.open = false;
+    h.call("ui.start", json!({"command":"sketch.create"}));
+    h.frames(3);
+    assert!(h.widget("Plano").is_some());
+    assert!(h.widget("Cancelar").is_some());
+    assert!(!scenario::handles("dialog:Plane").is_empty());
+    assert_eq!(crate::i18n::tr("ui.preferences"), "Preferences");
+    h.app.preferences.language = "en".into();
+    h.frames(3);
+    assert!(h.widget("Plane").is_some());
+    assert!(h.widget("Cancel").is_some());
+}
+
+#[test]
+fn brazilian_portuguese_tool_instructions_work_outside_rendering() {
+    let mut h = Harness::new();
+    h.app.preferences.language = "pt-BR".into();
+    h.app.home.open = false;
+    h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
+    h.call("ui.start", json!({"command":"sketch.line"}));
+    assert!(h.app.status.as_ref().is_some_and(|(text, _, error)| !error && text.contains("Linha: clique nos pontos")));
+    assert_eq!(crate::i18n::tr("ui.preferences"), "Preferences");
+}
+
+#[test]
+fn brazilian_portuguese_preference_applies_persists_and_cancel_restores_it() {
+    let mut h = Harness::new();
+    h.app.home.open = false;
+    h.call("ui.prefs", json!({"open":"General"}));
+    h.call("ui.prefs", json!({"language":"pt-BR"}));
+    h.frames(2);
+    assert!(h.widget("Idioma").is_some());
+    assert_eq!(h.app.preferences.language, "pt-BR");
+    h.call("ui.prefs", json!({"button":"apply"}));
+    let mut restored = Harness::new();
+    restored.app.load_prefs(&h.app.prefs());
+    assert_eq!(restored.app.preferences.language, "pt-BR");
+    assert_eq!(restored.app.tr("ui.preferences"), "Preferências");
+    h.call("ui.prefs", json!({"language":"en"}));
+    h.call("ui.prefs", json!({"button":"cancel"}));
+    assert_eq!(h.app.preferences.language, "pt-BR");
+    assert_eq!(h.app.tr("ui.preferences"), "Preferências");
+}
+
+#[test]
+fn portuguese_browser_preserves_authored_labels_and_canonical_name_handles() {
+    fn painted_text(shape: &egui::Shape, expected: &str, row_y: Option<f32>) -> bool {
+        match shape {
+            egui::Shape::Text(text) => {
+                text.galley.job.text == expected && row_y.is_none_or(|y| y >= text.pos.y && y <= text.pos.y + text.galley.size().y)
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().any(|shape| painted_text(shape, expected, row_y)),
+            _ => false,
+        }
+    }
+    let mut h = Harness::new();
+    h.app.preferences.language = "pt-BR".into();
+    h.app.home.open = false;
+    h.app.run("solid.box", json!({"length":10,"width":20,"height":30})).unwrap();
+    h.app.run("body.rename", json!({"body":"Body1","name":"Boss"})).unwrap();
+    for name in ["Steel", "Sketch1"] {
+        h.app.run("sketch.create", json!({"plane":"XY","name":name})).unwrap();
+        h.app.run("sketch.finish", json!({})).unwrap();
+    }
+    h.app.session.doc_mut().name = "Plane".into();
+    h.frames(3);
+    let mut output = h.ctx.run_ui(
+        egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0))), ..Default::default() },
+        |ui| h.app.ui(ui),
+    );
+    for (name, shown) in [("Plane", "Plane"), ("Boss", "Boss"), ("Steel", "Steel"), ("Sketch1", "Esboço1")] {
+        // Browser rows paint text directly and do not create AccessKit label widgets.
+        // Default-name patterns retain upstream localization; model values and handles stay canonical.
+        let row = scenario::handle_at(&format!("row:{name}")).unwrap_or_else(|| panic!("name handle must remain unchanged: {name}"));
+        assert!(output.shapes.iter().any(|shape| painted_text(&shape.shape, shown, Some(row.y))), "browser row {name} must paint {shown}");
+    }
+    assert!(output.shapes.iter().any(|shape| painted_text(&shape.shape, "ÁRVORE DO MODELO", None)));
+    output.textures_delta.clear();
 }
 
 #[test]

@@ -231,6 +231,25 @@ fn arc_top_edge_sizes_never_panic() {
     }
 }
 
+/// At the wall's full height both end seams disappear. The local blend cannot keep
+/// the consumed cylindrical face as a zero-area strip; just below the limit it fits.
+#[test]
+fn arc_top_blend_refuses_a_consumed_wall_and_keeps_a_narrow_one() {
+    for (name, body) in [("plate first", part()), ("corner first", part_other_order()), ("cut from a box", part_cut_from_a_box())] {
+        for round in [true, false] {
+            let what = if round { "fillet" } else { "chamfer" };
+            let at_limit = if round { fillet(&body, &[arc_top()], HEIGHT) } else { chamfer(&body, &[arc_top()], HEIGHT) };
+            assert!(matches!(at_limit, Err(KernelError::TooLarge(_))), "{name} {what}: {at_limit:?}");
+            let below = HEIGHT - 0.001;
+            let kept = if round { fillet(&body, &[arc_top()], below) } else { chamfer(&body, &[arc_top()], below) }
+                .unwrap_or_else(|e| panic!("{name} {what} just below the wall height: {e}"));
+            assert!(kept.validity().is_empty(), "{name} {what}: {:?}", kept.validity());
+            assert_eq!(kept.face_count(), body.face_count() + 1, "{name} {what}: the narrow wall is retained");
+            assert!(kept.display_plan(kept.size() * 1e-3).is_ok(), "{name} {what}: every face can be planned");
+        }
+    }
+}
+
 /// At the full wall height the fitted contact coincides with the bottom arc: retaining that
 /// wall produces a zero-area face, not a successful blend (#1113). Just below the limit the
 /// wall still has area and must remain supported. Face order and mirrored edge directions

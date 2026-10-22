@@ -517,9 +517,11 @@ fn begin_applying(app: &SolveApp, d: &Dialog) -> Begun {
     let ahead = app.session.ahead();
     let (tx, rx) = std::sync::mpsc::channel();
     let computed = cmds.clone();
+    let locale = crate::i18n::Locale::for_language(&app.preferences.language);
     #[cfg(test)]
     let gate = app.apply_gate.clone();
     let spawned = std::thread::Builder::new().name("apply".into()).spawn(move || {
+        let _language = crate::i18n::scope(locale.id());
         let evaluated = ahead.evaluate(&computed).ok();
         #[cfg(test)]
         if let Some(gate) = gate {
@@ -1884,8 +1886,8 @@ fn selection_label(s: &Session, item: &Sel) -> String {
         Sel::SketchCurve { id } => id.clone(),
         Sel::SketchPoint { id } => crate::sketch_modify_ui::point_id(s, item).unwrap_or(id).to_string(),
         Sel::Plane { name } | Sel::Axis { name } | Sel::Body { name } => name.clone(),
-        Sel::Face { body, index, .. } => format!("{body} · face {index}"),
-        Sel::Edge { body, index, .. } => format!("{body} · edge {index}"),
+        Sel::Face { body, index, .. } => crate::i18n::format("selection.body_face", &[("body", body), ("index", &index.to_string())]),
+        Sel::Edge { body, index, .. } => crate::i18n::format("selection.body_edge", &[("body", body), ("index", &index.to_string())]),
         Sel::Feature { id } => s.doc.feature(*id).map(|f| f.name.clone()).unwrap_or_else(|| format!("Feature {id}")),
         Sel::Vertex { body, point } if body.is_empty() => {
             let state = s.world_state();
@@ -2144,7 +2146,7 @@ pub(crate) fn fill_cells(st: &solidcraft_engine::doc::ModelState, tools: &[Strin
             // The sample nearest the middle (the middle itself may be outside a curved cell).
             let rep = pts.iter().min_by(|a, b| a.dist(c).total_cmp(&b.dist(c))).copied()?;
             let inside: Vec<&str> = bodies.iter().enumerate().filter(|(t, _)| sig & (1 << t) != 0).map(|(_, (name, _))| name.as_str()).collect();
-            Some((rep, format!("Inside {}", inside.join(", "))))
+            Some((rep, crate::i18n::format("dialog.inside", &[("bodies", &inside.join(", "))])))
         })
         .collect()
 }

@@ -169,7 +169,7 @@ pub fn open_tab(app: &mut SolveApp, session: Session) -> Result<(), String> {
         app.docs.active = 0;
     }
     if app.docs.slots.len() >= MAX_OPEN {
-        return Err(format!("at most {MAX_OPEN} designs can be open"));
+        return Err(app.tr_format("error.max_designs", &[("maximum", &MAX_OPEN.to_string())]));
     }
     let at = app.docs.active + 1;
     app.docs.slots.insert(at, Some(DocSlot::new(session)));
@@ -500,7 +500,7 @@ pub fn tabs(app: &mut SolveApp, ui: &mut egui::Ui, r: Rect, x0: f32, x1: f32) {
         if resp.secondary_clicked() {
             menu = Some((i, ui.ctx().pointer_interact_pos().unwrap_or(tr.left_bottom())));
         }
-        if xresp.on_hover_text("Close").clicked() {
+        if xresp.on_hover_text(crate::i18n::tr_label("Close")).clicked() {
             shut = Some(i);
         } else if resp.on_hover_text(name.as_str()).clicked() {
             pick = Some(i);

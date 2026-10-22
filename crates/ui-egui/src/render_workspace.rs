@@ -316,7 +316,7 @@ fn image_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
                     app.render_workspace.view.completed = Some(job);
                 }
                 if let Some(message) = status["error"]["message"].as_str() {
-                    ui.label(message);
+                    ui.label(crate::display_error(message));
                     if status["error"]["code"] == "limit_exceeded" {
                         ui.small(app.tr("render.image_reduce"));
                     }
@@ -337,7 +337,7 @@ fn image_controls(app: &mut SolveApp, ui: &mut egui::Ui) {
                 }
             }
             Err(e) => {
-                ui.label(e.to_string());
+                ui.label(crate::display_error(&e.to_string()));
             }
         }
     }
@@ -561,7 +561,7 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            error,
+            crate::display_error(&error),
             egui::FontId::proportional(crate::theme::Tokens::get().font_heading),
             Tokens::get().text,
         );

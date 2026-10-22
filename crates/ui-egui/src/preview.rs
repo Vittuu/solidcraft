@@ -336,7 +336,8 @@ pub fn update(app: &mut SolveApp, ctx: &egui::Context) {
             return;
         }
         let scratch = app.session.scratch();
-        spawn(&mut app.preview, key, scratch, cmds, colors, tool);
+        let locale = crate::i18n::Locale::for_language(&app.preferences.language);
+        spawn(&mut app.preview, key, scratch, cmds, colors, tool, locale);
     }
     app.preview.busy = app.preview.running.is_some();
     if app.preview.busy {
@@ -356,9 +357,10 @@ fn job_key(cmds: &[(String, Value)], revision: u64, colors: Colors) -> u64 {
 
 /// Start computing the preview of `cmds`: for a tool feature (`tool`), only its tool.
 #[cfg(not(target_arch = "wasm32"))]
-fn spawn(pv: &mut PreviewState, key: u64, scratch: Session, cmds: Vec<(String, Value)>, colors: Colors, tool: bool) {
+fn spawn(pv: &mut PreviewState, key: u64, scratch: Session, cmds: Vec<(String, Value)>, colors: Colors, tool: bool, locale: crate::i18n::Locale) {
     let (tx, rx) = std::sync::mpsc::channel();
     let spawned = std::thread::Builder::new().name("preview".into()).spawn(move || {
+        let _language = crate::i18n::scope(locale.id());
         let _ = tx.send(if tool { compute_tool(&scratch, &cmds, colors) } else { compute(&scratch, &cmds, colors) });
     });
     match spawned {
@@ -372,7 +374,8 @@ fn spawn(pv: &mut PreviewState, key: u64, scratch: Session, cmds: Vec<(String, V
 
 /// No threads on the web: compute right away.
 #[cfg(target_arch = "wasm32")]
-fn spawn(pv: &mut PreviewState, key: u64, scratch: Session, cmds: Vec<(String, Value)>, colors: Colors, tool: bool) {
+fn spawn(pv: &mut PreviewState, key: u64, scratch: Session, cmds: Vec<(String, Value)>, colors: Colors, tool: bool, locale: crate::i18n::Locale) {
+    let _language = crate::i18n::scope(locale.id());
     pv.apply(key, if tool { compute_tool(&scratch, &cmds, colors) } else { compute(&scratch, &cmds, colors) });
 }
 

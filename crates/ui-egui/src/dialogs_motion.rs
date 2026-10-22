@@ -1063,7 +1063,7 @@ mod tests {
                 assert_eq!(h.app.session.doc.appearances.faces[0].look.name, "ABS - Red");
                 assert!(h.app.session.doc.appearances.faces[0].strict_name);
             }
-            h.run(&json!([{"widget":"Library"},{"widget":"Follow inherited appearance"},{"widget":"Apply"}])).unwrap();
+            h.run(&json!([{"widget":"Library"},{"widget":crate::i18n::tr("configuration.follow_inherited")},{"widget":"Apply"}])).unwrap();
             assert!(h.app.session.doc.appearances.components.is_empty());
             assert!(h.app.session.doc.appearances.faces.is_empty());
             crate::scenario::check(&mut h, &json!({"windows_fit":{"max_width":Tokens::get().form_card_width * 3.0}})).unwrap();

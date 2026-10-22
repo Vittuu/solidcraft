@@ -27,7 +27,10 @@ The test is [`apps/solidcraft-cli/tests/action_matrix.rs`](../apps/solidcraft-cl
   rewrite the baseline after a fix (newly passing actions are listed when you don't), and
   `--results FILE` to keep every outcome with its message and the command that was sent.
   `ACTION_MATRIX_FILTER=oracle/23` runs only the designs whose name contains it;
-  `ACTION_MATRIX_JOBS` sets how many designs run at once.
+  `ACTION_MATRIX_JOBS` sets how many designs run at once. The default is at most four designs;
+  each child gets a Rayon thread budget of available CPUs divided by the design jobs (at least one).
+  An explicit `RAYON_NUM_THREADS` keeps its value. These defaults also apply under direct Cargo
+  and nextest runs; `cargo xtask test` gives the matrix the same budget during its isolated phase.
   For a quick local look, `ACTION_MATRIX_ACTIONS=edge.fillet,edge.chamfer` tries only those actions (never
   bless such a run) and `ACTION_MATRIX_VALIDITY=1` adds each passing action's body check (`Body::validity`)
   to the results.

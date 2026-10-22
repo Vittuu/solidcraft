@@ -1193,7 +1193,7 @@ fn draw_revolve(
                 let text = if extent.curved_to {
                     "To surface".into()
                 } else if extent.sweep.is_finite() {
-                    format!("Sweep {:.1}°", extent.sweep.to_degrees())
+                    crate::i18n::format("sketch.sweep_angle", &[("angle", &format!("{:.1}", extent.sweep.to_degrees()))])
                 } else {
                     "Choose target".into()
                 };

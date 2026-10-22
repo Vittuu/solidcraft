@@ -254,6 +254,7 @@ fn startup_steps_survive_a_rebase_and_running_ends_startup() {
     let d = fresh_dir("rebase");
     fs::create_dir_all(d.join("sessions")).unwrap();
     let mut j = Journal::open(&d, &build(), now());
+    let path = j.path.as_ref().unwrap().clone();
     j.phase = Some(json!({"phase": "first frame", "ms": 5}).to_string());
     j.environment = Some(json!({"environment": "Renderer: X"}).to_string());
     j.rebase(&json!("new"), 1);
@@ -265,8 +266,14 @@ fn startup_steps_survive_a_rebase_and_running_ends_startup() {
     j.write(&json!({"phase": RUNNING, "ms": 9}).to_string());
     let r = read_journal_file(j.file.as_ref().unwrap().try_clone().unwrap());
     assert_eq!(r.phase, Some((RUNNING.to_string(), 9)));
+    let running_phase = r.phase.clone();
+    let environment = Some("Renderer: X".to_string());
+    assert_eq!(r.environment, environment);
     assert!(from_journal(r).fields.get("startup_phase").is_none(), "a running app is past startup");
     drop(j);
+    let persisted = read_journal(&path);
+    assert_eq!(persisted.phase, running_phase);
+    assert_eq!(persisted.environment, environment);
     let _ = fs::remove_dir_all(&d);
 }
 

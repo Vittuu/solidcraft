@@ -1,0 +1,378 @@
+{
+  "--view {v}: {e} ({hint}; or a view saved with view.save)": [
+    "e",
+    "hint"
+  ],
+  "3MF: build item {}: {e}": [
+    "e"
+  ],
+  "Boolean retry: {}": [
+    "0"
+  ],
+  "Paste New assembly: {message}": [
+    "message"
+  ],
+  "STEP export: {e}": [
+    "e"
+  ],
+  "STEP syntax error at line {}: {msg}": [
+    "msg"
+  ],
+  "Skipped {kind} `{name}`: references outside the copied component tree or geometry without a copied identity.": [
+    "kind"
+  ],
+  "`plane` must be {WANT}": [
+    "WANT"
+  ],
+  "`{0}` is the wrong kind of entity for this: {1}": [
+    "1"
+  ],
+  "`{f}` needs a unit-less number, not {}": [
+    "0"
+  ],
+  "`{f}` needs an angle, not {}": [
+    "0"
+  ],
+  "`{key}` must be {what}": [
+    "what"
+  ],
+  "`{name}` has an error: {e}": [
+    "e"
+  ],
+  "`{}` is not a construction plane (a plane is {WANT})": [
+    "WANT"
+  ],
+  "a value in {}": [
+    "0"
+  ],
+  "an exponent must be a unit-less number, not {}": [
+    "0"
+  ],
+  "build item {}: {e}": [
+    "e"
+  ],
+  "cannot add {left} and {right}": [
+    "left",
+    "right"
+  ],
+  "cannot fill the loop: {other}": [
+    "other"
+  ],
+  "cannot subtract {left} and {right}": [
+    "left",
+    "right"
+  ],
+  "cannot take {} modulo {}": [
+    "0",
+    "1"
+  ],
+  "cannot {} {} and {}": [
+    "0",
+    "1",
+    "2"
+  ],
+  "command {i} ({id}): {e}": [
+    "e"
+  ],
+  "component placement #{rel}: {e} (placed at the origin)": [
+    "e"
+  ],
+  "configuration `{row}`: {e}": [
+    "e"
+  ],
+  "configuration `{r}`: {error}": [
+    "error"
+  ],
+  "configuration rules: {message}": [
+    "message"
+  ],
+  "copied feature failed: {error}": [
+    "error"
+  ],
+  "damaged design: {e}": [
+    "e"
+  ],
+  "distance: {e}": [
+    "e"
+  ],
+  "edge: {e}": [
+    "e"
+  ],
+  "expected {}, got {}": [
+    "0",
+    "1"
+  ],
+  "expression: {0}": [
+    "0"
+  ],
+  "face {fi}: {why}": [
+    "why"
+  ],
+  "history: {detail}": [
+    "detail"
+  ],
+  "invalid input: {0}": [
+    "0"
+  ],
+  "invalid render registry: {reason}": [
+    "reason"
+  ],
+  "invalid render request: {reason}": [
+    "reason"
+  ],
+  "invalid spline: {0}": [
+    "0"
+  ],
+  "lost face attachment on `{}`: {error}": [
+    "error"
+  ],
+  "lumps: {detail}": [
+    "detail"
+  ],
+  "mapped item #{item}: {e}": [
+    "e"
+  ],
+  "mesh conversion: {message}": [
+    "message"
+  ],
+  "no browser row `{label}`{} on screen": [
+    "0"
+  ],
+  "no edge at [{}, {}, {}]: {far}": [
+    "far"
+  ],
+  "no plane `{r}` (a plane is {WANT})": [
+    "WANT"
+  ],
+  "not supported yet: a command script of a design with {what} (#886)": [
+    "what"
+  ],
+  "not supported yet: tessellation: {what}": [
+    "what"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has 1 curved face ({target_kinds})": [
+    "target_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has 1 curved face ({target_kinds}) and the tool has 1 curved face ({tool_kinds})": [
+    "target_kinds",
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has 1 curved face ({target_kinds}) and the tool has {tool_n} curved faces ({tool_kinds})": [
+    "target_kinds",
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has 1 curved face ({target_kinds}) and the tool's {tool_detail}": [
+    "target_kinds",
+    "tool_detail"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has {target_n} curved faces ({target_kinds})": [
+    "target_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has {target_n} curved faces ({target_kinds}) and the tool has 1 curved face ({tool_kinds})": [
+    "target_kinds",
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has {target_n} curved faces ({target_kinds}) and the tool has {tool_n} curved faces ({tool_kinds})": [
+    "target_kinds",
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target has {target_n} curved faces ({target_kinds}) and the tool's {tool_detail}": [
+    "target_kinds",
+    "tool_detail"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target's {target_detail}": [
+    "target_detail"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target's {target_detail} and the tool has 1 curved face ({tool_kinds})": [
+    "target_detail",
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target's {target_detail} and the tool has {tool_n} curved faces ({tool_kinds})": [
+    "target_detail",
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the target's {target_detail} and the tool's {tool_detail}": [
+    "target_detail",
+    "tool_detail"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the tool has 1 curved face ({tool_kinds})": [
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the tool has {tool_n} curved faces ({tool_kinds})": [
+    "tool_kinds"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and the tool's {tool_detail}": [
+    "tool_detail"
+  ],
+  "not supported yet: the exact fallback for where the bodies meet (faces that touch, or cross at a shallow angle) takes planar faces only, and {}": [
+    "0"
+  ],
+  "not supported yet: the pocket at {} in a face of the sheet {why} (cut it after converting)": [
+    "why"
+  ],
+  "not supported yet: the {kind} at {} reaches into a bend (cut it after converting)": [
+    "kind"
+  ],
+  "not supported yet: {0}": [
+    "0"
+  ],
+  "not supported yet: {msg}": [
+    "msg"
+  ],
+  "not supported yet: {m}": [
+    "m"
+  ],
+  "note: the script leaves out {what}": [
+    "what"
+  ],
+  "offset refinement limit reached while certifying its chain: {error}": [
+    "error"
+  ],
+  "only bodies with planes, cylinders, cones, spheres and tori{at}": [
+    "at"
+  ],
+  "parameter `{name}`: {error}": [
+    "error"
+  ],
+  "parameter `{n}`: {e}": [
+    "e"
+  ],
+  "planar boolean beside curved faces: {m}": [
+    "m"
+  ],
+  "portable B-rep: {0}": [
+    "0"
+  ],
+  "projected reference lost: {e}": [
+    "e"
+  ],
+  "projected {}: {e}": [
+    "e"
+  ],
+  "radius: {e}": [
+    "e"
+  ],
+  "render {resource} exceeds limit: {requested} > {limit}": [
+    "resource"
+  ],
+  "row `{}`: {e}": [
+    "e"
+  ],
+  "rule `{}`: {e}": [
+    "e"
+  ],
+  "select {what} first": [
+    "what"
+  ],
+  "sew: {s}": [
+    "s"
+  ],
+  "sketch `{}`: {why}; the values were not changed": [
+    "why"
+  ],
+  "solidcraft mcp: the design's folder is left out because {why}; add it with --allow-path if you mean it": [
+    "why"
+  ],
+  "spline too large: {0}": [
+    "0"
+  ],
+  "step {} ({id}): {e}": [
+    "e"
+  ],
+  "t-spline: {e}": [
+    "e"
+  ],
+  "the edge at [{:.3}, {:.3}, {:.3}] is smooth: the faces on either side meet tangentially there, so there is no corner to {what}; pick the sharp edges": [
+    "what"
+  ],
+  "the face across the bend at {} can't be a face of the sheet: {e}": [
+    "e"
+  ],
+  "the fixed face can't be a face of the sheet: {e}": [
+    "e"
+  ],
+  "the flange at {} is not clear of the flange beside it: {why}": [
+    "why"
+  ],
+  "the {role} has {n} curved face{} ({})": [
+    "1",
+    "role"
+  ],
+  "the {role}'s {m}": [
+    "m",
+    "role"
+  ],
+  "the {verb} could not be computed reliably: {what}. The result was refused rather than kept wrong; where the bodies only touch (faces flush with each other), overlapping them slightly usually helps": [
+    "verb",
+    "what"
+  ],
+  "this {shown} mm hole is too wide for a modelled {m} thread: {cut}; drill {} mm for {m}": [
+    "cut"
+  ],
+  "this {shown} mm hole is too wide for a modelled {m} thread: {cut}; drill {} mm for {m}, or thread this hole {a}": [
+    "cut"
+  ],
+  "this {shown} mm shaft is too thin for a modelled {m} thread: {cut}; make the shaft {} mm for {m}": [
+    "cut"
+  ],
+  "this {shown} mm shaft is too thin for a modelled {m} thread: {cut}; make the shaft {} mm for {m}, or thread this shaft {a}": [
+    "cut"
+  ],
+  "unknown command `{0}`{hint}": [
+    "hint"
+  ],
+  "value: {err}": [
+    "err"
+  ],
+  "vertex: {e}": [
+    "e"
+  ],
+  "{FOLD_FIXED_OFF_SHEET} at ({:.3}, {:.3}, {:.3}); the side of the fold line it lies on stays": [
+    "FOLD_FIXED_OFF_SHEET"
+  ],
+  "{error}; choose a supported exact face or explicitly use fixed:true": [
+    "error"
+  ],
+  "{error}; explicitly rebind the author placement before editing": [
+    "error"
+  ],
+  "{e} (the face at {})": [
+    "e"
+  ],
+  "{label}: imported as an open body (the shell is not closed)": [
+    "label"
+  ],
+  "{label}: not imported: {err}": [
+    "label"
+  ],
+  "{label}: not imported: {msg}": [
+    "label"
+  ],
+  "{path}: not allowed for this agent: {why}": [
+    "why"
+  ],
+  "{shown}: the design has a feature that fails ({e}); fix it before linking it": [
+    "e"
+  ],
+  "{what} cancelled": [
+    "what"
+  ],
+  "{what} needs a solid body; mesh bodies can only be moved, measured and exported": [
+    "what"
+  ],
+  "{what} size must be positive": [
+    "what"
+  ],
+  "{what}: expected a number": [
+    "what"
+  ],
+  "{what}: expected a reference": [
+    "what"
+  ],
+  "{what}: {x} out of range": [
+    "what"
+  ],
+  "{which} has no bold face: choose an installed font, or its bold file": [
+    "which"
+  ]
+}

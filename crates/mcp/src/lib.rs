@@ -53,11 +53,9 @@ pub fn agent_scope_with(recovery: Option<PathBuf>, allowed: impl IntoIterator<It
 pub fn scratch_dir() -> Option<PathBuf> {
     static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
-        let b = std::fs::DirBuilder::new();
+        let b = &mut std::fs::DirBuilder::new();
         #[cfg(unix)]
-        let mut b = b;
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        std::os::unix::fs::DirBuilderExt::mode(b, 0o700);
         let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
         (0..16u32).find_map(|i| {
             let d = vfs::temp_dir().join(format!("solidcraft-mcp-{}-{:x}", std::process::id(), seed.wrapping_add(i)));

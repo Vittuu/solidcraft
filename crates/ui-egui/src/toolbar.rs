@@ -515,7 +515,7 @@ fn file_menu(app: &mut SolveApp, ctx: &egui::Context) {
                 crate::ui_kit::Menu::button(ui, app.tr("ui.open_recent"), |ui| {
                     for path in app.home.recent.clone() {
                         let missing = !crate::home::available(app, &path);
-                        let label = format!("{path}{}", if missing { " (missing)" } else { "" });
+                        let label = if missing { crate::i18n::format("file.missing", &[("path", &path)]) } else { path.to_string() };
                         if crate::context_menu::button(ui, &label, "open").clicked() {
                             crate::home::open_recent(app, &path);
                             close = true;
@@ -694,7 +694,7 @@ fn export_as(app: &mut SolveApp, ext: &str, format: Option<&str>) {
             params["format"] = json!(format);
         }
         if app.run("file.export", params).is_ok() {
-            app.set_status(format!("Exported {path}"), false);
+            app.set_status(app.tr_format("file.exported", &[("path", &path)]), false);
         }
     });
 }
@@ -1652,7 +1652,7 @@ fn dropdown_row(app: &SolveApp, ui: &mut egui::Ui, c: &'static solidcraft_engine
         crate::scenario::publish_handle(&format!("dropdown_pin:{}", c.id), pr.center());
     }
     let tip = if pinned { "Remove from Toolbar" } else { "Pin to Toolbar" };
-    if pin.on_hover_text(tip).clicked() {
+    if pin.on_hover_text(crate::i18n::tr_label(tip)).clicked() {
         return RowAction::TogglePin;
     }
     // A disabled row says why; a documented command also shows its help (#2758).
@@ -2440,7 +2440,7 @@ mod home_tests {
         assert!(files.iter().any(|f| f.ends_with(".urdf")) && files.iter().any(|f| f.ends_with("-base.stl")), "{files:?}");
     }
 
-    /// The disabled buttons' tooltip is translated in every catalog (not English fallback).
+    /// Every non-English catalog translates the disabled buttons' tooltip.
     #[test]
     fn needs_design_tooltip_is_translated() {
         let english = crate::i18n::Locale::for_language("en").text("ui.needs_design");

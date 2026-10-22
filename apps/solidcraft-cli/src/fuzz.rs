@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use solidcraft_engine::fuzz;
 use solidcraft_engine::fuzz::boolean_case;
+use solidcraft_engine::i18n::Locale;
 
 fn flag<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> T {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).and_then(|v| v.parse().ok()).unwrap_or(default)
@@ -63,7 +64,7 @@ struct Job {
 
 /// Run seeds `--from`…`--from + --count` in `--jobs` processes, `--timeout` seconds each;
 /// write failing scripts to `--out` and a summary to `--report`.
-pub fn run(args: &[String]) -> Result<(), String> {
+pub fn run(args: &[String], locale: Locale) -> Result<(), String> {
     let from = flag(args, "--from", 0u64);
     let count = flag(args, "--count", 100u64);
     let last = from.checked_add(count.saturating_sub(1)).ok_or("seed range exceeds u64::MAX: reduce --from or --count")?;
@@ -132,7 +133,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             };
             match done {
                 Some(v) => {
-                    record(&v, out_dir.as_deref());
+                    record(&v, out_dir.as_deref(), locale);
                     results.push(v);
                     running.swap_remove(i);
                 }
@@ -140,7 +141,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    let summary = summarise(&results, t0.elapsed());
+    let summary = summarise(&results, t0.elapsed(), locale);
     println!("{summary}");
     if let Some(r) = report {
         std::fs::write(&r, &summary).map_err(|e| format!("{r}: {e}"))?;
@@ -149,16 +150,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
 }
 
 /// Print a failure as it comes in and keep its script.
-fn record(v: &Value, out_dir: Option<&str>) {
+fn record(v: &Value, out_dir: Option<&str>, locale: Locale) {
     let seed = v["seed"].as_u64().unwrap_or(0);
     let d = &v["design"];
     let bug = matches!(d["outcome"]["kind"].as_str(), Some("failed" | "panic" | "invalid" | "volume"));
     if bug || v.get("timeout").is_some() || v.get("crash").is_some() {
-        eprintln!("seed {seed}: {}", if bug { format!("{} {}", d["outcome"]["kind"], d["outcome"]["detail"]) } else { format!("{v}") });
+        let detail = if bug { format!("{} {}", d["outcome"]["kind"], diagnostic_value(locale, &d["outcome"]["detail"])) } else { format!("{v}") };
+        eprintln!("{}", human_format!(locale, "seed {seed}: {detail}"));
     }
     let bk = v["boolean"]["outcome"].as_str().unwrap_or("ok");
     if bk != "ok" {
-        eprintln!("seed {seed}: boolean {bk} {}", v["boolean"]["detail"]);
+        let detail = diagnostic_value(locale, &v["boolean"]["detail"]);
+        eprintln!("{}", human_format!(locale, "seed {seed}: boolean {bk} {detail}"));
     }
     if let Some(dir) = out_dir {
         use std::io::Write;
@@ -175,7 +178,14 @@ fn record(v: &Value, out_dir: Option<&str>) {
     }
 }
 
-fn summarise(results: &[Value], took: Duration) -> String {
+fn diagnostic_value(locale: Locale, value: &Value) -> Value {
+    match value.as_str() {
+        Some(text) => json!(locale.protocol_error(text)),
+        None => value.clone(),
+    }
+}
+
+fn summarise(results: &[Value], took: Duration, locale: Locale) -> String {
     let n = results.len().max(1);
     let mut design: BTreeMap<String, usize> = BTreeMap::new();
     let mut boolean: BTreeMap<String, usize> = BTreeMap::new();
@@ -209,38 +219,38 @@ fn summarise(results: &[Value], took: Duration) -> String {
         };
         if k != "ok" {
             let last = v["design"]["steps"].as_array().and_then(|a| a.last()).and_then(Value::as_str).unwrap_or("?");
-            *at_step.entry(format!("{k} at {last}")).or_default() += 1;
+            *at_step.entry(human_format!(locale, "{k} at {last}")).or_default() += 1;
         }
         *design.entry(k).or_default() += 1;
-        *boolean.entry(v["boolean"]["outcome"].as_str().unwrap_or("not run").to_string()).or_default() += 1;
+        *boolean.entry(locale.protocol_error(v["boolean"]["outcome"].as_str().unwrap_or("not run"))).or_default() += 1;
         steps += v["design"]["steps"].as_array().map(Vec::len).unwrap_or(0);
         for u in v["design"]["unsupported"].as_array().into_iter().flatten() {
             *unsupported.entry(u[0].as_str().unwrap_or("?").to_string()).or_default() += 1;
         }
     }
     let pct = |c: usize| format!("{c} ({:.1} %)", 100.0 * c as f64 / n as f64);
-    let mut s = format!("{} seeds, {steps} design steps, {:.0} s\n\nDesigns:\n", results.len(), took.as_secs_f64());
+    let mut s = human_format!(locale, "{} seeds, {steps} design steps, {:.0} s\n\nDesigns:\n", results.len(), took.as_secs_f64());
     for (k, c) in &design {
         s += &format!("- {k}: {}\n", pct(*c));
     }
-    s += "\nFailures by step:\n";
+    s += &locale.protocol_error("\nFailures by step:\n");
     for (k, c) in &at_step {
         s += &format!("- {k}: {c}\n");
     }
-    s += "\nSteps refused as not supported (undone, the design went on):\n";
+    s += &locale.protocol_error("\nSteps refused as not supported (undone, the design went on):\n");
     for (k, c) in &unsupported {
         s += &format!("- {k}: {c}\n");
     }
-    s += &format!("\nCaught panics (fatal in the web build): designs {}, boolean checks {}\n", pct(dp), pct(bp));
-    s += "\nBoolean identity (union, intersection, cut of two primitives):\n";
+    s += &human_format!(locale, "\nCaught panics (fatal in the web build): designs {}, boolean checks {}\n", pct(dp), pct(bp));
+    s += &locale.protocol_error("\nBoolean identity (union, intersection, cut of two primitives):\n");
     for (k, c) in &boolean {
         s += &format!("- {k}: {}\n", pct(*c));
     }
-    s += "\nSuccessful Boolean retries (events, including nested operations):\n";
+    s += &locale.protocol_error("\nSuccessful Boolean retries (events, including nested operations):\n");
     for (strategy, [designs, checks]) in &fallbacks {
-        s += &format!("- {strategy}: designs {designs}, boolean checks {checks}\n");
+        s += &human_format!(locale, "- {strategy}: designs {designs}, boolean checks {checks}\n");
     }
-    s += &format!("- Capped reports: designs {}, boolean checks {}\n", truncated[0], truncated[1]);
+    s += &human_format!(locale, "- Capped reports: designs {}, boolean checks {}\n", truncated[0], truncated[1]);
     s
 }
 
@@ -255,7 +265,7 @@ mod tests {
             json!({"design":{"outcome":{"kind":"ok"},"boolean_fallbacks":{"shifted_operands":1}},"boolean":{"outcome":"ok"}}),
             json!({"timeout":90}),
         ];
-        let text = summarise(&results, Duration::ZERO);
+        let text = summarise(&results, Duration::ZERO, Locale::for_language("en"));
         assert!(text.contains("shifted_operands: designs 3, boolean checks 3"), "{text}");
         assert!(text.contains("Capped reports: designs 0, boolean checks 1"), "{text}");
         assert!(text.contains("timeout: 1 (33.3 %)"), "{text}");

@@ -2,202 +2,8 @@
 //! pass through an adapter without changing engine or scenario identifiers.
 
 use std::cell::Cell;
-use std::collections::BTreeMap;
-use std::sync::OnceLock;
 
-type Messages = BTreeMap<String, String>;
-
-/// Register locales here after adding their catalogs. Missing translations use English.
-pub struct Catalog {
-    pub id: &'static str,
-    pub name: &'static str,
-    source: &'static str,
-    messages: OnceLock<Messages>,
-}
-
-impl Catalog {
-    const fn new(id: &'static str, name: &'static str, source: &'static str) -> Self {
-        Self { id, name, source, messages: OnceLock::new() }
-    }
-
-    fn messages(&'static self) -> &'static Messages {
-        self.messages.get_or_init(|| match serde_json::from_str(self.source) {
-            Ok(messages) => messages,
-            Err(error) => {
-                log::error!("invalid embedded {} message catalog: {error}", self.id);
-                Messages::new()
-            }
-        })
-    }
-}
-
-static ENGLISH: Catalog = Catalog::new("en", "English", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/en.json")));
-static CZECH: Catalog = Catalog::new("cs", "Čeština", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/cs.json")));
-static DANISH: Catalog = Catalog::new("da", "Dansk", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/da.json")));
-static GERMAN: Catalog = Catalog::new("de", "Deutsch", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/de.json")));
-/// English in UK spelling: only the messages whose spelling differs; the rest are English's.
-static ENGLISH_UK: Catalog =
-    Catalog::new("en-GB", "English (UK)", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/en-GB.json")));
-static SPANISH: Catalog = Catalog::new("es", "Español (España)", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/es.json")));
-static FRENCH: Catalog = Catalog::new("fr", "Français", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/fr.json")));
-static GALICIAN: Catalog = Catalog::new("gl", "Galego", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/gl.json")));
-static HUNGARIAN: Catalog = Catalog::new("hu", "Magyar", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/hu.json")));
-static INDONESIAN: Catalog =
-    Catalog::new("id", "Bahasa Indonesia", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/id.json")));
-static ITALIAN: Catalog = Catalog::new("it", "Italiano", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/it.json")));
-static JAPANESE: Catalog = Catalog::new("ja", "日本語", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/ja.json")));
-static KOREAN: Catalog = Catalog::new("ko", "한국어", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/ko.json")));
-static MALAY: Catalog = Catalog::new("ms", "Bahasa Melayu", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/ms.json")));
-static DUTCH: Catalog = Catalog::new("nl", "Nederlands", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/nl.json")));
-static POLISH: Catalog = Catalog::new("pl", "Polski", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/pl.json")));
-static PORTUGUESE_BR: Catalog =
-    Catalog::new("pt-BR", "Português (Brasil)", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/pt-BR.json")));
-static ROMANIAN: Catalog = Catalog::new("ro", "Română", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/ro.json")));
-static RUSSIAN: Catalog = Catalog::new("ru", "Русский", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/ru.json")));
-static SWEDISH: Catalog = Catalog::new("sv", "Svenska", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/sv.json")));
-static TURKISH: Catalog = Catalog::new("tr", "Türkçe", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/tr.json")));
-static UKRAINIAN: Catalog = Catalog::new("uk", "Українська", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/uk.json")));
-static VIETNAMESE: Catalog = Catalog::new("vi", "Tiếng Việt", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/vi.json")));
-static CHINESE: Catalog = Catalog::new("zh", "中文", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/zh.json")));
-static CHINESE_TRADITIONAL: Catalog =
-    Catalog::new("zh-TW", "繁體中文", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/locales/zh-TW.json")));
-/// English first (the fallback), then by language id, one per line so that adding a language
-/// doesn't edit a line another addition edits.
-#[rustfmt::skip]
-pub const LOCALES: &[&Catalog] = &[
-    &ENGLISH,
-    &CZECH,
-    &DANISH,
-    &GERMAN,
-    &ENGLISH_UK,
-    &SPANISH,
-    &FRENCH,
-    &GALICIAN,
-    &HUNGARIAN,
-    &INDONESIAN,
-    &ITALIAN,
-    &JAPANESE,
-    &KOREAN,
-    &MALAY,
-    &DUTCH,
-    &POLISH,
-    &PORTUGUESE_BR,
-    &ROMANIAN,
-    &RUSSIAN,
-    &SWEDISH,
-    &TURKISH,
-    &UKRAINIAN,
-    &VIETNAMESE,
-    &CHINESE,
-    &CHINESE_TRADITIONAL,
-];
-
-pub fn is_supported(id: &str) -> bool {
-    LOCALES.iter().any(|catalog| catalog.id == id)
-}
-
-/// Immutable locale reference. Catalogs parse once; lookups are logarithmic.
-#[derive(Clone, Copy)]
-pub struct Locale(&'static Catalog);
-
-impl Locale {
-    pub fn for_language(id: &str) -> Self {
-        Self(LOCALES.iter().copied().find(|catalog| catalog.id == id).unwrap_or(&ENGLISH))
-    }
-
-    pub fn name(self) -> &'static str {
-        self.0.name
-    }
-
-    /// Stable message ID → translation → English → ID.
-    pub fn text(self, id: &str) -> &str {
-        self.0.messages().get(id).or_else(|| ENGLISH.messages().get(id)).map_or(id, String::as_str)
-    }
-
-    /// Translate source labels from engine/UI tables, preserving unknown labels.
-    /// Also accepts stable IDs while table helpers migrate away from source text.
-    pub fn label(self, label: &str) -> &str {
-        static LABEL_IDS: OnceLock<BTreeMap<&'static str, &'static str>> = OnceLock::new();
-        let ids = LABEL_IDS.get_or_init(|| {
-            ENGLISH.messages().iter().filter(|(_, text)| !text.contains('{')).map(|(id, text)| (text.as_str(), id.as_str())).collect()
-        });
-        ids.get(label).map_or_else(|| self.text(label), |id| self.text(id))
-    }
-
-    pub fn format(self, id: &str, args: &[(&str, &str)]) -> String {
-        interpolate(self.text(id), args)
-    }
-
-    /// The default names SolidCraft gives (`Untitled` for a new design, `Sketch1`, `Body2`,
-    /// `Component3`), translated.
-    fn default_name(self, text: &str) -> Option<String> {
-        if text == "Untitled" {
-            return Some(self.text("ui.untitled").to_string());
-        }
-        for (prefix, id) in [("Sketch", "browser.sketch_name"), ("Body", "browser.body_name"), ("Component", "browser.component_name")] {
-            if let Some(number) = text.strip_prefix(prefix)
-                && !number.is_empty()
-                && number.chars().all(|c| c.is_ascii_digit())
-            {
-                return Some(self.format(id, &[("number", number)]));
-            }
-        }
-        None
-    }
-
-    /// A name someone gave (a body, sketch, component, …): shown as typed, even when it matches
-    /// a UI label ("Fillet", "Boss"); only the default names are translated.
-    pub fn given_name(self, text: &str) -> String {
-        self.default_name(text).unwrap_or_else(|| text.to_string())
-    }
-
-    /// Translate generated browser names and labels, preserving custom names otherwise.
-    pub fn dynamic(self, text: &str) -> String {
-        if let Some(name) = self.default_name(text) {
-            return name;
-        }
-        for (prefix, id, arg) in [("Units: ", "browser.units", "units"), ("Precision: ", "browser.precision", "precision")] {
-            if let Some(value) = text.strip_prefix(prefix) {
-                return self.format(id, &[(arg, value)]);
-            }
-        }
-        if let Some(count) = text.strip_prefix("Parameters (").and_then(|s| s.strip_suffix(')')) {
-            return self.format("browser.parameters", &[("count", count)]);
-        }
-        if let Some(count) = text.strip_suffix(" degrees of freedom")
-            && !count.is_empty()
-            && count.chars().all(|c| c.is_ascii_digit())
-        {
-            return self.format("sketch.degrees_of_freedom", &[("count", count)]);
-        }
-        self.label(text).to_string()
-    }
-}
-
-/// One-pass substitution: argument values are literal, even when they contain braces.
-/// Missing arguments remain visible rather than crashing or silently removing text.
-fn interpolate(template: &str, args: &[(&str, &str)]) -> String {
-    let mut output = String::with_capacity(template.len());
-    let mut remaining = template;
-    while let Some((before, after)) = remaining.split_once('{') {
-        output.push_str(before);
-        let Some((name, rest)) = after.split_once('}') else {
-            output.push('{');
-            output.push_str(after);
-            return output;
-        };
-        if let Some((_, value)) = args.iter().find(|(key, _)| *key == name) {
-            output.push_str(value);
-        } else {
-            output.push('{');
-            output.push_str(name);
-            output.push('}');
-        }
-        remaining = rest;
-    }
-    output.push_str(remaining);
-    output
-}
+pub use solidcraft_engine::i18n::{Catalog, ENGLISH, LOCALES, Locale, Messages, interpolate, is_supported};
 
 thread_local! {
     // Helpers without an app reference share a render scope. Nested renders restore
@@ -244,6 +50,14 @@ pub fn tr_name(text: &str) -> String {
     CURRENT.with(|current| current.get().given_name(text))
 }
 
+pub fn diagnostic(text: &str) -> String {
+    CURRENT.with(|current| current.get().protocol_error(text))
+}
+
+pub fn protocol_format(source: &str, args: &[(&str, &str)]) -> String {
+    CURRENT.with(|current| current.get().protocol_format(source, args))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +68,30 @@ mod tests {
         let ids: Vec<&str> = LOCALES.iter().map(|c| c.id).collect();
         assert_eq!(ids.first(), Some(&"en"));
         assert!(ids[1..].is_sorted(), "{ids:?}");
+    }
+
+    #[test]
+    fn back_action_and_rear_view_have_distinct_portuguese_labels() {
+        let _language = scope("pt-BR");
+        assert_eq!(tr("ui.back"), "Voltar");
+        assert_eq!(tr("view.back"), "TRASEIRA");
+        assert_eq!(tr_label("BACK"), "TRASEIRA");
+    }
+
+    #[test]
+    fn a_measurement_label_does_not_replace_its_coordinate_template() {
+        let locale = Locale::for_language("pt-BR");
+        assert_eq!(locale.text("measure.at"), "Em");
+        assert_eq!(locale.format("measure.coordinates", &[("x", "1"), ("y", "2"), ("z", "3")]), "Em  1, 2, 3");
+    }
+
+    #[test]
+    fn uk_english_inherits_messages_without_a_spelling_override() {
+        let locale = Locale::for_language("en-GB");
+        assert_eq!(locale.id(), "en-GB");
+        assert_eq!(locale.text("Center X"), "Centre X");
+        assert_eq!(locale.text("ui.needs_design"), ENGLISH.messages()["ui.needs_design"]);
+        assert_eq!(locale.format("measure.coordinates", &[("x", "1"), ("y", "2"), ("z", "3")]), "At  1, 2, 3");
     }
 
     /// English (UK) holds only the messages it spells differently; the rest are English's.
@@ -299,13 +137,10 @@ mod tests {
         ENGLISH.messages().values().map(String::as_str).collect()
     }
 
-    /// Catalogs delivered complete. English is the source catalog; Czech, Italian, Japanese and Chinese
-    /// are complete. German, Korean, Malay, Russian, French and Ukrainian
-    /// are partial (German and Korean predate the coverage guards; Russian, French and Ukrainian
-    /// are kept partial so a new label doesn't need more translations), so their gaps fall back
-    /// to English and are reported by `cargo xtask i18n` without failing the build, while
-    /// nothing in the complete catalogs may regress.
-    const COMPLETE: &[&str] = &["ja", "zh"];
+    /// English is the source catalog. Japanese, Chinese and Brazilian Portuguese
+    /// are guarded against missing messages. Other registered locales may be partial
+    /// and fall back to English, including the UK English spelling overlay.
+    const COMPLETE: &[&str] = &["ja", "zh", "pt-BR"];
 
     /// `text()` falls back to English silently, so a message a complete locale never received is
     /// shown in English inside an otherwise translated UI, with nothing in the build to say so.
@@ -391,6 +226,7 @@ mod tests {
             ("pl", "Kołnierz", "Analiza zebry", "Badanie ruchu"),
             ("ru", "Фланец", "Зебра-анализ", "Исследование движения"),
             ("fr", "Bord tombé", "Analyse zébrée", "Étude de mouvement"),
+            ("pt-BR", "Flange", "Análise de listras zebra", "Estudo de movimento"),
             ("uk", "Фланець", "Зебра-аналіз", "Дослідження руху"),
         ];
         for (lang, flange, zebra, motion) in cases {
@@ -686,8 +522,8 @@ mod tests {
         assert_eq!(pt.name(), "Português (Brasil)");
         assert!(is_supported("pt-BR"));
         assert_eq!(pt.text("ui.preferences"), "Preferências");
-        assert_eq!(pt.format("document.save_changes", &[("name", "My {design}")]), "Salvar as alterações em My {design}?");
-        assert_eq!(pt.format("dialog.selected_count", &[("count", "2")]), "↖ 2 selecionados");
+        assert_eq!(pt.format("document.save_changes", &[("name", "My {design}")]), "Salvar alterações em My {design}?");
+        assert_eq!(pt.format("dialog.selected_count", &[("count", "2")]), "↖ Selecionados: 2");
         assert_eq!(pt.label("NonExistentKey"), "NonExistentKey");
     }
 
@@ -706,6 +542,7 @@ mod tests {
     #[test]
     fn ukrainian_catalog_translates_keys_labels_and_browser_patterns() {
         let uk = Locale::for_language("uk");
+        assert_eq!(uk.id(), "uk");
         assert_eq!(uk.name(), "Українська");
         assert!(is_supported("uk"));
         assert_eq!(uk.text("ui.preferences"), "Налаштування");
@@ -722,6 +559,8 @@ mod tests {
         assert_eq!(uk.dynamic("Parameters (5)"), "Параметри (5)");
         assert_eq!(uk.dynamic("4 degrees of freedom"), "4 ступенів вільності");
         assert_eq!(uk.dynamic("Sketch of bracket"), "Sketch of bracket");
+        assert_eq!(uk.text("startup.safe_mode"), Locale::for_language("en").text("startup.safe_mode"));
+        assert_eq!(uk.protocol_error("division by zero"), "division by zero");
     }
 
     #[test]
@@ -780,5 +619,31 @@ mod tests {
             assert_eq!(tr("ui.preferences"), "環境設定");
         }
         assert_eq!(tr("ui.preferences"), "Preferences");
+    }
+
+    #[test]
+    fn brazilian_portuguese_preserves_model_names_and_literal_template_values() {
+        let pt = Locale::for_language("pt-BR");
+        assert!(is_supported("pt-BR"));
+        assert_eq!(pt.name(), "Português (Brasil)");
+        assert_eq!(pt.text("ui.preferences"), "Preferências");
+        assert_eq!(pt.label("Extrude"), "Extrusão");
+        assert_eq!(pt.dynamic("Sketch1"), "Esboço1");
+        assert_eq!(pt.dynamic("Body2"), "Corpo2");
+        assert_eq!(pt.dynamic("Component12"), "Componente12");
+        assert_eq!(pt.dynamic("Units: mm"), "Unidades: mm");
+        assert_eq!(pt.dynamic("Parameters (5)"), "Parâmetros (5)");
+        assert_eq!(pt.dynamic("Minha peça {original}"), "Minha peça {original}");
+        assert_eq!(pt.format("document.save_changes", &[("name", "Minha {peça}")]), "Salvar alterações em Minha {peça}?");
+        assert_eq!(pt.label("solid.extrude"), "solid.extrude");
+        assert_eq!(pt.label("Thin Extrude"), "Extrusão de parede fina");
+        assert_eq!(pt.label("UNTRIM"), "DESFAZER RECORTE");
+        assert_eq!(pt.text("ui.design_properties.project"), "Projeto");
+        assert_eq!(pt.text("ui.project"), "Projetar");
+        assert_eq!(pt.format("dialog.computing", &[("seconds", "1.25")]), "Calculando… 1.25 s");
+        assert_eq!(
+            pt.format("drive.stopped_by_contact", &[("value", "10 mm"), ("a", "Body {2}"), ("b", "Inside")]),
+            "Parou em 10 mm: Body {2} atravessaria Inside"
+        );
     }
 }

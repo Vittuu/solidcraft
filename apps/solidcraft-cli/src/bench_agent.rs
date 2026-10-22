@@ -14,7 +14,7 @@
 //! build total, then the phases `bench-open` prints for the saved design.
 
 use serde_json::{Value, json};
-use solidcraft_engine::Session;
+use solidcraft_engine::{Session, i18n::Locale};
 
 struct Script {
     commands: Vec<Value>,
@@ -160,7 +160,7 @@ pub fn bicycle(scale: f64) -> Value {
     json!({"commands": s.commands})
 }
 
-pub fn run(args: &[String]) -> Result<(), String> {
+pub fn run(args: &[String], locale: Locale) -> Result<(), String> {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
     let scale = match flag("--scale") {
         Some(v) => v.parse::<f64>().ok().filter(|v| v.is_finite() && *v > 0.0 && *v <= 20.0).ok_or("--scale takes a number from 0 to 20")?,
@@ -207,7 +207,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         None => std::env::temp_dir().join(format!("bench-agent-{}.solidcraft", std::process::id())).to_string_lossy().into_owned(),
     };
     s.execute("file.save", &json!({"path": path})).map_err(|e| e.to_string())?;
-    let r = crate::cmd_bench_open(std::slice::from_ref(&path));
+    let r = crate::cmd_bench_open(std::slice::from_ref(&path), locale);
     if flag("--save").is_none() {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{path}.bak"));

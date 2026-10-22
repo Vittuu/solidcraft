@@ -106,9 +106,9 @@ fn face_label(app: &SolveApp, selection: &Sel) -> String {
     if let Some((_, source, _, path, _)) =
         placed.body_frames_with_source(&app.session.model.state()).into_iter().find(|(world, _, _, _, _)| world == body)
     {
-        format!("Face on {source} / {}", path_label(app, &path))
+        crate::i18n::format("attachment.face_source", &[("source", &source), ("placement", &path_label(app, &path))])
     } else {
-        format!("Face on {body}")
+        crate::i18n::format("attachment.face_body", &[("body", body)])
     }
 }
 

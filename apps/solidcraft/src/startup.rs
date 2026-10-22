@@ -56,7 +56,7 @@ fn app_ron_reads(text: &str, prefs_keys: &[&str]) -> bool {
 
 /// Check the settings files in `dir` before anything reads them: one that doesn't read is moved
 /// aside (the app then starts with defaults for it). Returns a line per file moved.
-pub fn check_settings(dir: &Path, prefs_keys: &[&str]) -> Vec<String> {
+pub fn check_settings(dir: &Path, prefs_keys: &[&str], locale: solidcraft_engine::i18n::Locale) -> Vec<String> {
     let mut notes = Vec::new();
     let mut check = |name: &str, reads: &dyn Fn(&str) -> bool| {
         let path = dir.join(name);
@@ -68,7 +68,7 @@ pub fn check_settings(dir: &Path, prefs_keys: &[&str]) -> Vec<String> {
         match back_up(&path) {
             Ok(to) => {
                 log::warn!("settings: {} did not read; moved to {}", path.display(), to.display());
-                notes.push(format!("{name} could not be read and was moved to {}; defaults are used.", to.display()));
+                notes.push(locale.format("startup.settings_moved", &[("name", name), ("path", &to.display().to_string())]));
             }
             Err(e) => log::warn!("settings: {} did not read and could not be moved: {e}", path.display()),
         }
@@ -190,17 +190,9 @@ pub fn has_hardware_adapter(backends: eframe::wgpu::Backends) -> bool {
 }
 
 /// The message shown when no window could be opened at all.
-pub fn no_window_message(error: &str, settings: Option<&Path>) -> String {
-    let folder = settings.map(|d| d.display().to_string()).unwrap_or_else(|| "the SolidCraft settings folder".into());
-    format!(
-        "SolidCraft could not open its window.\n\n{error}\n\n\
-         The software renderer was tried too. Things to try:\n\
-         - Install or update the graphics driver (on Windows, from the GPU maker's site rather than Windows Update).\n\
-         - Over Remote Desktop or in a virtual machine, enable 3D acceleration or run it on the machine itself.\n\
-         - Start it once with `solidcraft --safe-mode`.\n\
-         - Rename the settings folder: {folder}\n\n\
-         More: https://docs.solidcraft.io/guide/troubleshooting.html"
-    )
+pub fn no_window_message(error: &str, settings: Option<&Path>, locale: solidcraft_engine::i18n::Locale) -> String {
+    let folder = settings.map(|d| d.display().to_string()).unwrap_or_else(|| locale.text("startup.settings_folder").into());
+    locale.format("startup.no_window", &[("error", error), ("folder", &folder)])
 }
 
 #[cfg(test)]
@@ -227,7 +219,7 @@ mod tests {
         // Good files (and an empty one) stay where they are.
         std::fs::write(d.join("app.ron"), r#"{"solidcraft.prefs": "{\"grid\":true}", "egui": "(anything)"}"#).unwrap();
         std::fs::write(d.join("graphics.json"), r#"{"msaa":4}"#).unwrap();
-        assert!(check_settings(&d, &keys).is_empty());
+        assert!(check_settings(&d, &keys, solidcraft_engine::i18n::Locale::for_language("en")).is_empty());
         assert!(d.join("app.ron").is_file() && d.join("graphics.json").is_file());
         // Damaged RON, preferences that aren't JSON, a truncated graphics.json, non-UTF-8 bytes.
         for (name, text) in [
@@ -237,7 +229,7 @@ mod tests {
             ("graphics.json", b"\xff\xfe\x00".as_slice()),
         ] {
             std::fs::write(d.join(name), text).unwrap();
-            let notes = check_settings(&d, &keys);
+            let notes = check_settings(&d, &keys, solidcraft_engine::i18n::Locale::for_language("en"));
             assert_eq!(notes.len(), 1, "{name}: {notes:?}");
             assert!(!d.join(name).exists(), "{name} moved");
             let kept: Vec<_> =
@@ -322,8 +314,18 @@ mod tests {
 
     #[test]
     fn the_message_names_the_settings_folder_and_safe_mode() {
-        let m = no_window_message("no adapter", Some(Path::new("/x/SolidCraft")));
+        let m = no_window_message("no adapter", Some(Path::new("/x/SolidCraft")), solidcraft_engine::i18n::Locale::for_language("en"));
         assert!(m.contains("no adapter") && m.contains("/x/SolidCraft") && m.contains("--safe-mode"));
+    }
+
+    #[test]
+    fn translated_startup_notice_keeps_the_driver_error_and_settings_path() {
+        let error = "Vendor GPU: {opaque}; driver.dll";
+        let message = no_window_message(error, Some(Path::new("C:/models/{name}")), solidcraft_engine::i18n::Locale::for_language("pt-BR"));
+        assert!(message.starts_with("O SolidCraft não conseguiu abrir a janela."));
+        assert!(message.contains(error));
+        assert!(message.contains("C:/models/{name}"));
+        assert!(message.contains("solidcraft --safe-mode"));
     }
 
     #[test]

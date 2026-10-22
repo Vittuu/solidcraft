@@ -308,7 +308,8 @@ pub fn component_bodies(app: &SolveApp, id: u64) -> Vec<String> {
 /// The eight radial commands, clockwise from the top.
 pub fn radial_items(app: &SolveApp) -> Vec<Item> {
     let repeat = match &app.last_command {
-        Some((_, label)) => act("ui.repeat", &format!("Repeat {label}"), "redo").key(crate::keymap::REPEAT_KEY),
+        Some((_, label)) => act("ui.repeat", &crate::i18n::format("ui.repeat_command", &[("command", crate::i18n::tr_label(label))]), "redo")
+            .key(crate::keymap::REPEAT_KEY),
         None => act("ui.repeat", "Repeat", "redo").key(crate::keymap::REPEAT_KEY).on(false),
     };
     let delete = act("ui.delete", "Delete", "delete").key("Del").on(!app.session.selection.is_empty());
@@ -465,7 +466,10 @@ fn viewport_items(app: &SolveApp) -> Vec<Item> {
     let has = |f: fn(&Sel) -> bool| sel.iter().any(f);
     let mut v = Vec::new();
     if let Some((_, label)) = &app.last_command {
-        v.push(act("ui.repeat", &format!("Repeat {label}"), "redo").key(crate::keymap::REPEAT_KEY));
+        v.push(
+            act("ui.repeat", &crate::i18n::format("ui.repeat_command", &[("command", crate::i18n::tr_label(label))]), "redo")
+                .key(crate::keymap::REPEAT_KEY),
+        );
         v.push(Item::sep());
     }
     // Everything under the cursor, for what lies beneath something else.

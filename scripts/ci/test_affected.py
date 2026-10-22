@@ -46,24 +46,58 @@ def windows_metadata(root):
 
 
 class Synthetic(unittest.TestCase):
+    meta = SYNTH
+
     def test_leaf_selects_only_itself(self):
-        self.assertEqual(affected.select(SYNTH, ["apps/top/src/main.rs"]), (False, ["top"]))
+        self.assertEqual(affected.select(self.meta, ["apps/top/src/main.rs"]), (False, ["top"]))
 
     def test_reverse_dependencies_are_added(self):
-        self.assertEqual(affected.select(SYNTH, ["crates/base/src/lib.rs"]), (False, ["base", "mid", "top"]))
+        self.assertEqual(affected.select(self.meta, ["crates/base/src/lib.rs"]), (False, ["base", "mid", "top"]))
 
     def test_unrelated_package_is_not_selected(self):
-        full, pk = affected.select(SYNTH, ["crates/mid/Cargo.toml"])
+        full, pk = affected.select(self.meta, ["crates/mid/Cargo.toml"])
         self.assertEqual((full, pk), (False, ["mid", "top"]))
 
     def test_full_triggers(self):
         for p in ["Cargo.lock", "Cargo.toml", ".cargo/config.toml", ".config/nextest.toml", "rust-toolchain.toml",
                   ".github/workflows/ci.yml", "vendor/x/lib.rs", "tests/oracle/a.json", "assets/a.png",
                   "scripts/ci/affected.py", "unknown.txt"]:
-            self.assertEqual(affected.select(SYNTH, ["crates/alone/a.rs", p]), (True, []), p)
+            self.assertEqual(affected.select(self.meta, ["crates/alone/a.rs", p]), (True, []), p)
 
     def test_docs_only_selects_nothing(self):
-        self.assertEqual(affected.select(SYNTH, ["docs/book/a.md", "README.md", "packaging/x.yml"]), (False, []))
+        self.assertEqual(affected.select(self.meta, ["docs/book/a.md", "README.md", "packaging/x.yml"]), (False, []))
+
+    def test_manifest_in_neighboring_root_is_rejected(self):
+        meta = copy.deepcopy(self.meta)
+        root = meta["workspace_root"].rstrip("/\\")
+        package = meta["packages"][0]
+        package["manifest_path"] = package["manifest_path"].replace(root, root + "-other", 1)
+        with self.assertRaises(AssertionError):
+            affected.select(meta, [])
+
+
+class WindowsMetadata(Synthetic):
+    """Exercise native Cargo paths on every host, with git's POSIX changed paths."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.meta = copy.deepcopy(SYNTH)
+        root = r"C:\work space\ws"
+        cls.meta["workspace_root"] = root + "\\"
+        for package in cls.meta["packages"]:
+            package["manifest_path"] = root + package["manifest_path"][len(R):].replace("/", "\\")
+            for dependency in package["dependencies"]:
+                if "path" in dependency:
+                    dependency["path"] = root + dependency["path"][len(R):].replace("/", "\\") + "\\"
+
+    def test_mixed_metadata_separators_keep_reverse_dependencies(self):
+        meta = copy.deepcopy(self.meta)
+        for package in meta["packages"]:
+            package["manifest_path"] = package["manifest_path"].replace("\\", "/")
+            for dependency in package["dependencies"]:
+                if "path" in dependency:
+                    dependency["path"] = dependency["path"].replace("\\", "/")
+        self.assertEqual(affected.select(meta, ["crates/base/src/lib.rs"]), (False, ["base", "mid", "top"]))
 
     def test_no_code_paths_select_nothing(self):
         # What CI reads as "no code changed", on pull requests and pushes to main alike.

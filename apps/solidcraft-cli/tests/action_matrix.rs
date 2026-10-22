@@ -824,11 +824,9 @@ fn run_units(sample: u64, queue: &[Unit]) -> Vec<Value> {
     let dir = keep.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("action-matrix-{}-{run}", std::process::id())));
     std::fs::create_dir_all(&dir).unwrap();
     let timings = std::env::var_os("ACTION_MATRIX_TIMINGS").map(PathBuf::from);
-    let jobs: usize = std::env::var("ACTION_MATRIX_JOBS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(2, |n| n.get()))
-        .max(1);
+    let cpus = std::thread::available_parallelism().map_or(2, |n| n.get());
+    let jobs: usize = std::env::var("ACTION_MATRIX_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| cpus.clamp(1, 4)).max(1);
+    let worker_threads = (cpus / jobs).max(1);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let results = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|scope| {
@@ -838,7 +836,7 @@ fn run_units(sample: u64, queue: &[Unit]) -> Vec<Value> {
                     let file = u.name().replace('/', "__").replace([' ', '[', ']'], "_");
                     let out = dir.join(format!("{file}.r{run}.jsonl"));
                     let t = Instant::now();
-                    let lines = run_design(&u.design, &out, sample, u.slice);
+                    let lines = run_design(&u.design, &out, sample, u.slice, worker_threads);
                     let secs = t.elapsed().as_secs_f64();
                     let load = lines.iter().find(|o| o["entity"] == "design" && o["action"] == "load").and_then(|o| o["ms"].as_f64()).unwrap_or(0.0) / 1000.0;
                     if let Some(p) = &timings {
@@ -860,6 +858,56 @@ fn run_units(sample: u64, queue: &[Unit]) -> Vec<Value> {
     v
 }
 
+/// Build the actual worker process with a per-design Rayon default. An explicit parent
+/// preference remains exact; this also bounds direct Cargo/nextest matrix runs.
+fn worker_command(
+    design: &str,
+    out: &Path,
+    from: usize,
+    sample: u64,
+    slice: Option<(usize, usize)>,
+    threads: usize,
+    rayon: Option<&std::ffi::OsStr>,
+) -> Command {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["action_matrix_worker", "--exact", "--ignored", "--nocapture", "--test-threads", "1"])
+        .env("ACTION_MATRIX_DESIGN", design)
+        .env("ACTION_MATRIX_OUT", out)
+        .env("ACTION_MATRIX_FROM", from.to_string())
+        .env("ACTION_MATRIX_SAMPLE", sample.to_string())
+        .env("ACTION_MATRIX_SLICE", slice.map(|(j, n)| format!("{}/{n}", j + 1)).unwrap_or_default())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(explicit) = rayon {
+        command.env("RAYON_NUM_THREADS", explicit);
+    } else {
+        command.env("RAYON_NUM_THREADS", threads.to_string());
+    }
+    command
+}
+
+#[test]
+fn matrix_worker_command_preserves_restart_and_explicit_rayon_preferences() {
+    use std::ffi::OsStr;
+    let out = Path::new("matrix worker output.jsonl");
+    let value = |command: &Command, key: &str| {
+        command.get_envs().find(|(name, _)| *name == key).and_then(|(_, value)| value).map(|value| value.to_os_string())
+    };
+    let default = worker_command("oracle/23", out, 17, PR_SAMPLE, Some((1, 4)), 3, None);
+    assert_eq!(value(&default, "RAYON_NUM_THREADS"), Some("3".into()));
+    assert_eq!(value(&default, "ACTION_MATRIX_DESIGN"), Some("oracle/23".into()));
+    assert_eq!(value(&default, "ACTION_MATRIX_OUT"), Some(out.as_os_str().to_os_string()));
+    assert_eq!(value(&default, "ACTION_MATRIX_FROM"), Some("17".into()));
+    assert_eq!(value(&default, "ACTION_MATRIX_SAMPLE"), Some(PR_SAMPLE.to_string().into()));
+    assert_eq!(value(&default, "ACTION_MATRIX_SLICE"), Some("2/4".into()));
+    assert_eq!(default.get_args().next(), Some(OsStr::new("action_matrix_worker")));
+    assert_eq!(default.get_args().last(), Some(OsStr::new("1")));
+    let explicit = worker_command("oracle/23", out, 17, PR_SAMPLE, Some((1, 4)), 3, Some(OsStr::new("7")));
+    assert_eq!(value(&explicit, "RAYON_NUM_THREADS"), Some("7".into()));
+    assert_eq!(default.get_args().collect::<Vec<_>>(), explicit.get_args().collect::<Vec<_>>());
+}
+
 /// Run the actions (one in `sample`) of every design (the pull request sample leaves out the
 /// slow-loading ones).
 fn run_matrix(sample: u64) -> Vec<Value> {
@@ -873,23 +921,14 @@ fn run_matrix(sample: u64) -> Vec<Value> {
 }
 
 /// One design in child processes, restarting after an action that hangs or aborts.
-fn run_design(design: &str, out: &Path, sample: u64, slice: Option<(usize, usize)>) -> Vec<Value> {
+fn run_design(design: &str, out: &Path, sample: u64, slice: Option<(usize, usize)>, worker_threads: usize) -> Vec<Value> {
     let _ = std::fs::remove_file(out);
     let mut from = 0usize;
     let mut results = Vec::new();
     let mut extra = Vec::new();
     for _restart in 0..200 {
-        let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["action_matrix_worker", "--exact", "--ignored", "--nocapture", "--test-threads", "1"])
-            .env("ACTION_MATRIX_DESIGN", design)
-            .env("ACTION_MATRIX_OUT", out)
-            .env("ACTION_MATRIX_FROM", from.to_string())
-            .env("ACTION_MATRIX_SAMPLE", sample.to_string())
-            .env("ACTION_MATRIX_SLICE", slice.map(|(j, n)| format!("{}/{n}", j + 1)).unwrap_or_default())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let rayon = std::env::var_os("RAYON_NUM_THREADS");
+        let mut child = worker_command(design, out, from, sample, slice, worker_threads, rayon.as_deref()).spawn().unwrap();
         // Until the child writes, it is loading the design (again, after a restart).
         let loaded_at = std::fs::metadata(out).map(|m| m.len() as usize).unwrap_or(0);
         let mut seen = loaded_at;

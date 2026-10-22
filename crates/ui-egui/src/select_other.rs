@@ -182,7 +182,11 @@ fn curve_kind_name(k: &CurveKind) -> &'static str {
 }
 
 fn sketch_name(app: &SolveApp, sketch: u64) -> String {
-    app.session.doc.feature(sketch).map(|f| f.name.clone()).unwrap_or_else(|| format!("Sketch {sketch}"))
+    app.session
+        .doc
+        .feature(sketch)
+        .map(|f| f.name.clone())
+        .unwrap_or_else(|| crate::i18n::format("selection.sketch_number", &[("number", &sketch.to_string())]))
 }
 
 /// "Line 3" (its kind and number), with what kind of geometry it is when that matters.
@@ -190,16 +194,16 @@ fn curve_label(sk: &solidcraft_engine::sketch::Sketch, id: &str) -> String {
     if let Some((i, c)) = sk.curves.iter().enumerate().find(|(_, c)| c.id == id) {
         let kind = curve_kind_name(&c.kind);
         let n = id_number(id).unwrap_or_else(|| sk.curves.iter().take(i + 1).filter(|x| curve_kind_name(&x.kind) == kind).count() as u64);
-        let mut s = format!("{kind} {n}");
+        let mut s = crate::i18n::format("selection.curve_number", &[("kind", crate::i18n::tr_label(kind)), ("number", &n.to_string())]);
         if c.link.is_some() {
-            s.push_str(" (projected)");
+            s = crate::i18n::format("selection.projected_curve", &[("curve", &s)]);
         } else if c.construction {
-            s.push_str(" (construction)");
+            s = crate::i18n::format("selection.construction_curve", &[("curve", &s)]);
         }
         return s;
     }
     if sk.wires.iter().any(|w| w.id == id) {
-        return format!("3D Curve {}", id_number(id).unwrap_or(0));
+        return crate::i18n::format("selection.curve_3d", &[("number", &id_number(id).unwrap_or(0).to_string())]);
     }
     id.to_string()
 }
@@ -208,29 +212,39 @@ fn curve_label(sk: &solidcraft_engine::sketch::Sketch, id: &str) -> String {
 fn point_label(sk: &solidcraft_engine::sketch::Sketch, id: &str) -> String {
     let Some(pi) = sk.points.iter().position(|p| p.id == id) else { return id.to_string() };
     let role = sk.curves.iter().find_map(|c| {
-        let name = format!("{} {}", curve_kind_name(&c.kind).to_lowercase(), id_number(&c.id).unwrap_or(0));
-        let (start, end) = if c.reversed { ("end", "start") } else { ("start", "end") };
+        let name = crate::i18n::format(
+            "selection.curve_number",
+            &[("kind", &crate::i18n::tr_label(curve_kind_name(&c.kind)).to_lowercase()), ("number", &id_number(&c.id).unwrap_or(0).to_string())],
+        );
+        let (start, end) = if c.reversed { ("selection.end", "selection.start") } else { ("selection.start", "selection.end") };
         let role = match &c.kind {
-            CurveKind::Line { a, b } | CurveKind::Arc { a, b, .. } | CurveKind::Conic { a, b, .. } if *a == pi => Some(start.to_string()),
-            CurveKind::Line { b, .. } | CurveKind::Arc { b, .. } | CurveKind::Conic { b, .. } if *b == pi => Some(end.to_string()),
-            CurveKind::Circle { c, .. } | CurveKind::Arc { c, .. } | CurveKind::Ellipse { c, .. } if *c == pi => Some("centre".to_string()),
-            CurveKind::Ellipse { m, .. } if *m == pi => Some("major axis end".to_string()),
-            CurveKind::Conic { apex, .. } if *apex == pi => Some("apex".to_string()),
-            CurveKind::Spline { pts, .. } => pts.iter().position(|p| *p == pi).map(|k| format!("point {}", k + 1)),
+            CurveKind::Line { a, b } | CurveKind::Arc { a, b, .. } | CurveKind::Conic { a, b, .. } if *a == pi => {
+                Some(crate::i18n::tr(start).to_string())
+            }
+            CurveKind::Line { b, .. } | CurveKind::Arc { b, .. } | CurveKind::Conic { b, .. } if *b == pi => Some(crate::i18n::tr(end).to_string()),
+            CurveKind::Circle { c, .. } | CurveKind::Arc { c, .. } | CurveKind::Ellipse { c, .. } if *c == pi => {
+                Some(crate::i18n::tr("selection.centre").to_string())
+            }
+            CurveKind::Ellipse { m, .. } if *m == pi => Some(crate::i18n::tr("selection.major_axis_end").to_string()),
+            CurveKind::Conic { apex, .. } if *apex == pi => Some(crate::i18n::tr("selection.apex").to_string()),
+            CurveKind::Spline { pts, .. } => {
+                pts.iter().position(|p| *p == pi).map(|k| crate::i18n::format("selection.spline_point", &[("number", &(k + 1).to_string())]))
+            }
             _ => None,
         }?;
-        Some(format!("{name} {role}"))
+        Some(crate::i18n::format("selection.curve_role", &[("curve", &name), ("role", &role)]))
     });
-    let fixed = if sk.point_locked(pi) { ", fixed" } else { "" };
+    let fixed = sk.point_locked(pi);
     match role {
-        Some(r) => format!("Point ({r}{fixed})"),
-        None if fixed.is_empty() => format!("Point {}", id_number(id).unwrap_or(pi as u64 + 1)),
-        None => format!("Point {} (fixed)", id_number(id).unwrap_or(pi as u64 + 1)),
+        Some(r) => crate::i18n::format(if fixed { "selection.point_role_fixed" } else { "selection.point_role" }, &[("role", &r)]),
+        None if !fixed => crate::i18n::format("selection.point_number", &[("number", &id_number(id).unwrap_or(pi as u64 + 1).to_string())]),
+        None => crate::i18n::format("selection.fixed_point", &[("number", &id_number(id).unwrap_or(pi as u64 + 1).to_string())]),
     }
 }
 
 /// A row's name: "Line 3", "Point (arc 2 centre)", "Edge 4 · Body1", "XY Plane"…
 pub fn label(app: &SolveApp, sel: &Sel) -> String {
+    let _language = crate::i18n::scope(&app.preferences.language);
     let st = app.session.world_state();
     let in_sketch =
         |sketch: u64, f: &dyn Fn(&solidcraft_engine::sketch::Sketch) -> String| st.sketch(sketch).map(|ss| f(&ss.sketch)).unwrap_or_default();
@@ -239,16 +253,23 @@ pub fn label(app: &SolveApp, sel: &Sel) -> String {
         Sel::SketchCurve { id } => app.session.active_sketch.map(|s| in_sketch(s, &|sk| curve_label(sk, id))).unwrap_or_else(|| id.clone()),
         Sel::ExternalSketchPoint { sketch, id } => format!("{} · {}", in_sketch(*sketch, &|sk| point_label(sk, id)), sketch_name(app, *sketch)),
         Sel::ExternalSketchCurve { sketch, id } => format!("{} · {}", in_sketch(*sketch, &|sk| curve_label(sk, id)), sketch_name(app, *sketch)),
-        Sel::SketchConstraint { id } => format!("Constraint {id}"),
-        Sel::Vertex { body, .. } => format!("Vertex · {body}"),
-        Sel::Edge { body, index, .. } => format!("Edge {} · {body}", index + 1),
-        Sel::Face { body, index, .. } => format!("Face {} · {body}", index + 1),
-        Sel::Body { name } => format!("Body · {name}"),
-        Sel::Occurrence { path } => format!("Occurrence {path:?}"),
-        Sel::Feature { id } => app.session.doc.feature(*id).map(|f| f.name.clone()).unwrap_or_else(|| format!("Feature {id}")),
-        Sel::Profile { sketch, index } => format!("Profile {} · {}", index + 1, sketch_name(app, *sketch)),
-        Sel::Plane { name } if matches!(name.as_str(), "XY" | "XZ" | "YZ") => format!("{name} Plane"),
-        Sel::Axis { name } if matches!(name.as_str(), "X" | "Y" | "Z") => format!("{name} Axis"),
+        Sel::SketchConstraint { id } => crate::i18n::format("selection.constraint", &[("id", id)]),
+        Sel::Vertex { body, .. } => crate::i18n::format("selection.vertex_body", &[("body", body)]),
+        Sel::Edge { body, index, .. } => crate::i18n::format("selection.edge_body", &[("number", &(index + 1).to_string()), ("body", body)]),
+        Sel::Face { body, index, .. } => crate::i18n::format("selection.face_body", &[("number", &(index + 1).to_string()), ("body", body)]),
+        Sel::Body { name } => crate::i18n::format("selection.body", &[("name", name)]),
+        Sel::Occurrence { path } => crate::i18n::format("selection.occurrence", &[("path", &format!("{path:?}"))]),
+        Sel::Feature { id } => app
+            .session
+            .doc
+            .feature(*id)
+            .map(|f| f.name.clone())
+            .unwrap_or_else(|| crate::i18n::format("selection.feature_number", &[("id", &id.to_string())])),
+        Sel::Profile { sketch, index } => {
+            crate::i18n::format("selection.profile_sketch", &[("number", &(index + 1).to_string()), ("sketch", &sketch_name(app, *sketch))])
+        }
+        Sel::Plane { name } if matches!(name.as_str(), "XY" | "XZ" | "YZ") => crate::i18n::format("selection.plane", &[("name", name)]),
+        Sel::Axis { name } if matches!(name.as_str(), "X" | "Y" | "Z") => crate::i18n::format("selection.axis", &[("name", name)]),
         Sel::Plane { name } | Sel::Axis { name } => name.clone(),
     }
 }
@@ -298,7 +319,7 @@ pub fn open(app: &mut SolveApp, at: Pos2) -> bool {
 fn open_with(app: &mut SolveApp, proj: &Proj, at: Pos2) -> bool {
     let (rows, total) = rows_capped(app, proj, at);
     if rows.is_empty() {
-        app.set_status("Nothing to select here", false);
+        app.set_status(app.tr("selection.nothing").to_string(), false);
         return false;
     }
     close(app);
@@ -494,7 +515,10 @@ pub fn cycle_click(app: &mut SolveApp, proj: &Proj, at: Pos2) -> bool {
     let next = rows.iter().position(|r| crate::selection::same_item(&r.sel, &c.chosen)).map_or(0, |k| (k + 1) % rows.len());
     let Some(row) = rows.get(next).cloned() else { return false };
     apply(app, &row, false, false);
-    app.set_status(format!("{} ({} of {})", row.label, next + 1, rows.len()), false);
+    app.set_status(
+        app.tr_format("selection.cycling", &[("label", &row.label), ("number", &(next + 1).to_string()), ("total", &rows.len().to_string())]),
+        false,
+    );
     remember(app, c.at, Some(row.sel));
     true
 }

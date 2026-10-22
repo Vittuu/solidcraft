@@ -23,7 +23,7 @@ impl Default for Editor {
         Self {
             rule: ConfigRule {
                 id: String::new(),
-                name: "New rule".into(),
+                name: crate::i18n::tr("configuration.new_rule").into(),
                 enabled: true,
                 length_unit: None,
                 condition: RuleCondition::Always,
@@ -90,13 +90,29 @@ pub(super) fn show(ui: &mut Ui, app: &mut SolveApp, error: &mut Option<String>, 
     for (index, rule) in rules.iter().enumerate() {
         ui.push_id(&rule.id, |ui| {
             let summary = match &rule.effect {
-                RuleEffect::DriveParameter { parameter, expression } => format!("Drives {parameter} = {expression}"),
-                RuleEffect::DriveSuppression { feature, value } => format!(
-                    "Drives suppression {} = {value}",
-                    features.iter().find(|f| f.0 == *feature).map(|f| f.1.as_str()).unwrap_or("missing feature")
+                RuleEffect::DriveParameter { parameter, expression } => {
+                    crate::i18n::format("configuration.drives_parameter", &[("parameter", parameter), ("expression", expression)])
+                }
+                RuleEffect::DriveSuppression { feature, value } => crate::i18n::format(
+                    "configuration.drives_suppression",
+                    &[
+                        (
+                            "feature",
+                            features
+                                .iter()
+                                .find(|f| f.0 == *feature)
+                                .map(|f| f.1.as_str())
+                                .unwrap_or(crate::i18n::tr("configuration.missing_feature")),
+                        ),
+                        ("value", &value.to_string()),
+                    ],
                 ),
-                RuleEffect::ParameterRange { parameter, minimum, maximum } => format!("Restricts {parameter}: {minimum} through {maximum}"),
-                RuleEffect::AllowParameterValues { parameter, expressions } => format!("Restricts {parameter}: {}", expressions.join(", ")),
+                RuleEffect::ParameterRange { parameter, minimum, maximum } => {
+                    crate::i18n::format("configuration.restricts_range", &[("parameter", parameter), ("minimum", minimum), ("maximum", maximum)])
+                }
+                RuleEffect::AllowParameterValues { parameter, expressions } => {
+                    crate::i18n::format("configuration.restricts_values", &[("parameter", parameter), ("values", &expressions.join(", "))])
+                }
             };
             let actions_width = ["Edit", "↑", "↓", "Delete"].iter().map(|label| ui_kit::ContentWidth::button(ui, label)).sum::<f32>()
                 + crate::theme::Tokens::get().space_4 * 3.0;

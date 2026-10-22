@@ -63,9 +63,13 @@ assertions off. Some truck debug assertions fail on valid geometry; the `ci` pro
 them while building faster than `--release`. If a test fails only in a plain debug build, say
 so in the PR.
 
-Run `cargo xtask test` to build with this profile and run the test binaries concurrently,
-with doc tests alongside. Arguments after `--` go to each test binary, for example
-`cargo xtask test -- shell`. To run the test binaries sequentially instead, use
+Run `cargo xtask test` to build with this profile and run ordinary binaries and doc tests within
+a bounded CPU budget, including the ordinary engine tests. After that work finishes, four engine
+regressions that measure time or process resources each run in their own isolated process, and
+the action matrix runs on its own. Their original limits must not measure runner contention.
+Arguments after `--` go to each test binary, for example `cargo xtask test -- shell`.
+With any such arguments, the whole engine suite runs serially in isolation to preserve the
+requested filters and flags. To run the test binaries sequentially instead, use
 `cargo test --workspace --profile ci`.
 
 ## CI sharding and heavy tests

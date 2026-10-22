@@ -167,7 +167,7 @@ fn play_turns_the_angle_of_a_planar_pinion() {
     assert_eq!(cmds.last().map(|c| c.1["values"].clone()), Some(json!(["2 mm", "0 mm", "180 deg"])), "{cmds:?}");
 }
 
-/// The dialog's rows pass their English text, which the catalogs translate by its key.
+/// The dialog uses a contextual ID where English labels have different meanings.
 #[test]
 fn the_dialog_labels_translate() {
     let de = crate::i18n::Locale::for_language("de");
@@ -175,10 +175,20 @@ fn the_dialog_labels_translate() {
         ("Gear 1", "Zahnrad 1"),
         ("Radius 2", "Radius 2"),
         ("Internal gear", "Innenzahnrad"),
-        ("Pitch", "Steigung"),
+        (PITCH_LABEL, "Steigung"),
         ("Rack and Pinion", "Zahnstange und Ritzel"),
     ] {
         assert_eq!(de.label(english), german);
+    }
+    for (language, expected) in
+        [("de", "Steigung"), ("fr", "Pas"), ("ko", "피치"), ("ru", "Шаг"), ("uk", "Крок"), ("ja", "ピッチ"), ("pt-BR", "Passo"), ("zh", "螺距")]
+    {
+        let _language = crate::i18n::scope(language);
+        assert_eq!(crate::i18n::tr(PITCH_LABEL), expected, "{language}: screw pitch");
+    }
+    for (language, expected) in [("ja", "ピッチ"), ("pt-BR", "Arfagem"), ("zh", "俯仰")] {
+        let _language = crate::i18n::scope(language);
+        assert_eq!(crate::dialogs_assembly::dof_display("pitch"), expected, "{language}: angular pitch");
     }
     assert_eq!(crate::i18n::Locale::for_language("ja").label("not a round face"), "円筒面ではありません");
 }

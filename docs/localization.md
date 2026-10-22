@@ -1,9 +1,38 @@
 # UI localization
 
-SolidCraft embeds its translations and works offline. English, Czech, Danish, German, English (UK), Spanish, French, Galician, Italian,
-Japanese, Korean, Malay, Polish, Brazilian Portuguese, Russian, Turkish, Ukrainian and Chinese are currently registered in `crates/ui-egui/src/i18n.rs`. Adding a language requires an
+SolidCraft embeds its translations and works offline. The shared registry includes 25 locales:
+`en`, `cs`, `da`, `de`, `en-GB`, `es`, `fr`, `gl`, `hu`, `id`, `it`, `ja`, `ko`, `ms`, `nl`, `pl`, `pt-BR`, `ro`, `ru`, `sv`, `tr`, `uk`, `vi`, `zh`, `zh-TW`.
+They are registered in
+`crates/engine/src/i18n.rs`. Adding a language requires an
 embedded catalog and one registration there; the preferences selector and validation use the same
 registry.
+
+The UI re-exports the shared immutable catalogs and supplies its render scopes. CLI and MCP
+presentation use the same locale registry without depending on the graphical front end.
+`solidcraft-cli --language pt-BR --help` selects Brazilian Portuguese; `SOLIDCRAFT_LANGUAGE`
+is the equivalent environment setting. Machine-readable command IDs, property names and enum
+values retain their canonical spelling. Protocol descriptions containing literal JSON examples
+use the plain source-text dictionary in `assets/locales/protocol/pt-BR.json`, independently of
+the UI's named-placeholder templates.
+
+The desktop host also accepts `solidcraft --language pt-BR` (or `SOLIDCRAFT_LANGUAGE`),
+including its terminal help and crash-report summary. An explicit launch language overrides
+stored preferences. The browser accepts `?language=pt-BR`; its loading message, page language,
+metadata and application preference use that valid explicit choice. The HTML preloader
+uses the small `solidcraft-language` cache only for startup text while the Rust application
+loads. Once the application starts, its stored RON preferences are authoritative; a valid
+language query overrides the loaded preference. The cache is then refreshed from the
+application's selected language.
+
+Parameter help is keyed by canonical command ID in `assets/locales/commands/pt-BR.json`.
+Both `solidcraft-cli commands` and MCP command catalogs translate presentation fields only.
+MCP searches accept localized captions and the original labels/IDs. The Portuguese book's
+generated command reference uses the same dictionary and fails on missing parameter help.
+
+The Portuguese manual also localizes mdBook's navigation, keyboard help, theme selector,
+search and clipboard messages, redirects and 404 page through `assets/locales/book/pt-BR.json`.
+The Rust book generator preserves authored chapter content and code, updates content hashes
+for translated scripts and rejects catalog entries absent from the generated mdBook controls.
 
 ## Messages
 
@@ -44,10 +73,10 @@ that looks untranslated. Two guards catch that in the build:
 
 - `every_complete_catalog_carries_every_english_message` — adding a key to `en.json`
   without giving it to a complete catalog fails the tests. English is the source catalog,
-  Japanese and Chinese are delivered complete; Danish, German, Spanish, Galician, Italian, Korean, Malay, Polish, Brazilian Portuguese, Russian, French, Ukrainian and
-  Turkish are partial — their gaps fall back to English and are reported by `cargo xtask i18n` without
-  failing the build. A new label needs en, ja, zh, de and ko; Russian, French, Ukrainian and Malay may
-  follow later.
+  Japanese, Chinese and Brazilian Portuguese are delivered complete; German, Korean, Russian, French,
+  Ukrainian and Turkish are partial — their gaps fall back to English and are reported by
+  `cargo xtask i18n` without failing the build. A new label needs en, ja, zh, pt-BR, de and ko;
+  Russian, French, Ukrainian and Turkish may follow later.
 - `every_toolbar_tab_and_panel_is_in_the_english_catalog` — tabs and panels reach the UI as bare
   source strings, resolved only by the English-label adapter, so a heading missing from `en.json`
   can never translate.
@@ -107,5 +136,28 @@ are not covered, so a self-hosted SC/Korean font bundle remains follow-up work f
 The current messages support named substitution, not locale-specific plural selection,
 number/date formatting, or right-to-left layout and shaping. Add those capabilities when
 introducing messages or languages that need them; use an established message formatter for
-plural rules instead of adding language branches to panels. The catalogs cover the UI surfaces
-introduced by this PR, not every engine error or every newer command dialog.
+plural rules instead of adding language branches to panels. User-authored model names, command
+IDs, expressions, units and machine-readable model data keep their canonical spelling.
+Brazilian Portuguese translates project-authored diagnostic prose when presenting errors in
+the UI, CLI and MCP. Object names, IDs, expressions, file paths and supplied data are not
+translated. Opaque operating-system, third-party and debug
+details also remain literal; the surrounding project-authored explanation is localized.
+
+Project-owned diagnostic templates live in `assets/locales/diagnostics/pt-BR.json`.
+`assets/locales/diagnostics/arguments.json` identifies only arguments proved to contain
+project-owned diagnostic prose. Those arguments may be translated recursively within
+the matcher's byte, slot, step and depth limits. Other arguments remain literal; unknown
+or ambiguous messages also retain their original text.
+
+`cargo xtask --language pt-BR <command>` selects Portuguese human reports, and
+`SOLIDCRAFT_LANGUAGE` also applies. Arguments after the command continue to reach its
+subprocesses without language-option rewriting.
+
+## Messages with distinct contexts
+
+The navigation action `ui.back` (Back) and cube label `view.back` (BACK) are separate.
+`measure.at` is a label; `measure.coordinates` retains the named x/y/z template used by
+the current measurement dialog. Toolbar and left-browser descriptions have their own
+message IDs, so adopting the newer application-bar and vertical-history messages does not
+change the descriptions of the current layout. UK English is a spelling overlay and inherits
+unchanged text from English. Other partial catalogs keep the same English fallback.

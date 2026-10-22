@@ -141,7 +141,7 @@ pub fn run(root: &Path, site: Option<&str>, required: bool) -> Result<(), String
         if required {
             return Err("web-offline-test: Chrome not found (set CHROME to its executable)".into());
         }
-        println!("web-offline-test: skipped (no Chrome; set CHROME to its executable)");
+        humanln!("web-offline-test: skipped (no Chrome; set CHROME to its executable)");
         return Ok(());
     };
     let work = TempDir::new()?;
@@ -223,7 +223,7 @@ pub fn run(root: &Path, site: Option<&str>, required: bool) -> Result<(), String
         let (name, n) = kept.get(i).map(|(v, n)| (cache_name(PREFIX, v), n + 1)).unwrap_or_default();
         move |s: &Value| s["controlled"] == true && s["kept"] == json!({ name.clone(): n })
     };
-    let step = |what: &str, t: Duration| println!("ok    {what} ({:.1}s)", t.as_secs_f64());
+    let step = |what: &str, t: Duration| humanln!("ok    {} ({:.1}s)", crate::human_text(what), t.as_secs_f64());
 
     server.set(Mode::Serve(v1));
     let t = launch(&mut cdp, "v1")?;
@@ -399,7 +399,7 @@ pub fn run(root: &Path, site: Option<&str>, required: bool) -> Result<(), String
     let t = launch(&mut cdp, "dev")?;
     wait_for(&mut cdp, &state_js, "no worker", |s| s["controlled"] == false && s["registered"] == 0)?;
     step("development build: starts from the network", t);
-    println!("web-offline-test: passed");
+    humanln!("web-offline-test: passed");
     Ok(())
 }
 

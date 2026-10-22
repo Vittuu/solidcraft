@@ -3,6 +3,18 @@
 //! Rust workspace tooling. External tools (`cargo`, and Python 3.11+ for the
 //! original icon collection) are invoked through `std::process::Command`.
 
+// Localized human reports share the application's original diagnostic catalog. Cargo
+// commands, subprocess output, generated documents, JSON and identity values stay literal.
+macro_rules! humanln {
+    ($($args:tt)*) => { println!("{}", crate::human_text(&format!($($args)*))) };
+}
+macro_rules! humanerrln {
+    ($($args:tt)*) => { eprintln!("{}", crate::human_text(&format!($($args)*))) };
+}
+
+#[path = "../../crates/engine/src/i18n/diagnostics.rs"]
+mod diagnostics;
+
 mod app_icons;
 mod assets;
 mod book;
@@ -19,6 +31,27 @@ mod web_offline_test;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::sync::OnceLock;
+
+static PORTUGUESE: OnceLock<bool> = OnceLock::new();
+
+pub fn human_text(source: &str) -> String {
+    if PORTUGUESE.get().copied().unwrap_or(false) { diagnostics::translate(source) } else { source.to_string() }
+}
+
+fn language_args(args: Vec<String>, mut language: String) -> Result<(String, Vec<String>), String> {
+    let mut first = 0;
+    // Only leading global options are ours. Arguments after the command, including
+    // `test -- ...`, continue to reach Cargo and the test binaries without changes.
+    while args.get(first).is_some_and(|arg| arg == "--language") {
+        language = args.get(first + 1).ok_or_else(|| "--language needs a locale ID".to_string())?.clone();
+        first += 2;
+    }
+    if !["en", "ja", "de", "fr", "ko", "ru", "uk", "zh", "pt-BR"].contains(&language.as_str()) {
+        return Err(format!("unsupported language `{language}`"));
+    }
+    Ok((language, args.into_iter().skip(first).collect()))
+}
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -56,7 +89,7 @@ commands:
   lists [--fix]   check that files many changes add to are sorted one item per line (the
                   message catalogs in assets/locales); --fix sorts them
   test [CARGO ARGS] [-- TEST ARGS]
-                  build the tests with the ci profile, then run every test binary at once
+                  build the tests with the ci profile, then use bounded parallelism
                   (and the doc tests alongside)
   wasm            cargo check every library crate and the web app for wasm32-unknown-unknown
   web-offline [DIR]
@@ -73,6 +106,15 @@ commands:
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let language = std::env::var("SOLIDCRAFT_LANGUAGE").unwrap_or_else(|_| "en".to_string());
+    let (language, args) = match language_args(args, language) {
+        Ok(args) => args,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let _ = PORTUGUESE.set(language == "pt-BR");
     let rest: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
     let result = match args.first().map(String::as_str) {
         Some("layers") => cmd_layers(),
@@ -106,15 +148,17 @@ fn main() -> ExitCode {
             web_offline_test::run_api(site)
         }
         Some("-h" | "--help" | "help") | None => {
-            print!("{USAGE}");
+            print!("{}", human_text(USAGE));
+            humanln!("Global option before the command: --language <locale> (for example pt-BR); SOLIDCRAFT_LANGUAGE also selects the language.");
             Ok(())
         }
-        Some(other) => Err(format!("unknown command `{other}`\n\n{USAGE}")),
+        Some(other) => Err(format!("{}\n\n{}", human_text(&format!("unknown command `{other}`")), human_text(USAGE))),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            let e = human_text(&e);
+            humanerrln!("error: {e}");
             ExitCode::FAILURE
         }
     }
@@ -179,8 +223,8 @@ fn cmd_action_matrix(bless: bool, results: Option<&str>, from: Option<&str>) -> 
 
 fn cmd_layers() -> Result<(), String> {
     let crates = layers::from_metadata(&metadata()?)?;
-    println!("Dependency layering (plan/architecture.md §3)\n");
-    println!("{:<28} {:<14} workspace deps", "crate", "layer");
+    humanln!("Dependency layering (plan/architecture.md §3)\n");
+    humanln!("{:<28} {:<14} workspace deps", human_text("crate"), human_text("layer"));
     for c in &crates {
         let ws: Vec<String> = c
             .deps
@@ -195,17 +239,17 @@ fn cmd_layers() -> Result<(), String> {
                 format!("{}{k}", layers::short_name(&d.name))
             })
             .collect();
-        println!("{:<28} {:<14} {}", c.name, layers::describe(layers::classify(&c.name)), ws.join(", "));
+        println!("{:<28} {:<14} {}", c.name, human_text(&layers::describe(layers::classify(&c.name))), ws.join(", "));
     }
     let violations = layers::check(&crates);
     println!();
     if violations.is_empty() {
-        println!("OK: {} crates, no layering violations.", crates.len());
+        humanln!("OK: {} crates, no layering violations.", crates.len());
         Ok(())
     } else {
-        println!("{} violation(s):", violations.len());
+        humanln!("{} violation(s):", violations.len());
         for v in &violations {
-            println!("  - {v}");
+            humanln!("  - {}", human_text(&v.to_string()));
         }
         Err(format!("{} layering violation(s)", violations.len()))
     }
@@ -332,7 +376,7 @@ fn cmd_oracle(cli: Option<&str>) -> Result<(), String> {
         md += &format!("| {feature} | {test} |\n");
     }
     std::fs::write(root().join("docs/oracle.md"), md).map_err(|e| format!("docs/oracle.md: {e}"))?;
-    println!("oracle: {pass}/{} cases pass, {known} known failures, {missing} without expected values → docs/oracle.md", list.len());
+    humanln!("oracle: {pass}/{} cases pass, {known} known failures, {missing} without expected values → docs/oracle.md", list.len());
     if !failed.is_empty() {
         return Err(format!("{} case(s) failed: {}", failed.len(), failed.join(", ")));
     }
@@ -347,7 +391,7 @@ fn cmd_oracle(cli: Option<&str>) -> Result<(), String> {
 fn cmd_wasm() -> Result<(), String> {
     let (c, n) = wasm_check()?;
     run(c, &format!("cargo check --target wasm32-unknown-unknown ({n} crates)"))?;
-    println!("wasm: {n} crates build for wasm32-unknown-unknown");
+    humanln!("wasm: {n} crates build for wasm32-unknown-unknown");
     Ok(())
 }
 
@@ -366,8 +410,8 @@ fn wasm_check() -> Result<(Command, usize), String> {
     Ok((c, set.len()))
 }
 
-/// The quick gates first, so they fail fast; the wasm check (and doc tests) run while the test
-/// binaries do, which leaves cargo's build lock free.
+/// The quick gates first, so they fail fast; the wasm check and doc tests share the ordinary
+/// test phase, before the timing-sensitive suites run in isolation.
 fn cmd_ci() -> Result<(), String> {
     let mut c = cargo();
     c.args(["fmt", "--all", "--", "--check"]);
@@ -384,6 +428,79 @@ fn cmd_ci() -> Result<(), String> {
     let (wasm, n) = wasm_check()?;
     test::run(&[], &[], vec![(format!("wasm32-unknown-unknown check ({n} crates)"), wasm), test::doc_tests(&[], &[])])?;
     web_offline_test::run(&root(), None, false)?;
-    eprintln!("ci: all gates passed");
+    humanerrln!("ci: all gates passed");
     Ok(())
+}
+
+#[cfg(test)]
+mod language_arg_tests {
+    use super::language_args;
+
+    const LOCALES: &[&str] = &["en", "ja", "de", "fr", "ko", "ru", "uk", "zh", "pt-BR"];
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn inherited_language_accepts_every_application_locale() {
+        for locale in LOCALES {
+            assert_eq!(language_args(args(&["ci"]), (*locale).into()).unwrap(), ((*locale).to_string(), args(&["ci"])));
+        }
+    }
+
+    #[test]
+    fn leading_language_overrides_the_inherited_value() {
+        for locale in LOCALES {
+            assert_eq!(
+                language_args(args(&["--language", locale, "--help"]), "invalid-inherited".into()).unwrap(),
+                ((*locale).to_string(), args(&["--help"]))
+            );
+        }
+        assert_eq!(
+            language_args(args(&["--language", "pt-BR", "--language", "fr", "--help"]), "en".into()).unwrap(),
+            ("fr".into(), args(&["--help"]))
+        );
+    }
+
+    #[test]
+    fn language_arguments_after_the_command_remain_literal() {
+        for values in [&["test", "--", "--language", "ru"][..], &["oracle", "--cli", "--language"][..], &["help", "--language", "unsupported"][..]] {
+            let original = args(values);
+            assert_eq!(language_args(original.clone(), "en".into()).unwrap(), ("en".into(), original));
+        }
+    }
+
+    #[test]
+    fn invalid_or_missing_global_language_is_rejected() {
+        assert_eq!(language_args(args(&["help"]), "invalid-inherited".into()).unwrap_err(), "unsupported language `invalid-inherited`");
+        assert_eq!(
+            language_args(args(&["--language", "invalid-explicit", "help"]), "en".into()).unwrap_err(),
+            "unsupported language `invalid-explicit`"
+        );
+        assert_eq!(language_args(args(&["--language"]), "en".into()).unwrap_err(), "--language needs a locale ID");
+    }
+
+    #[test]
+    fn portuguese_help_translates_current_usage_and_keeps_command_syntax() {
+        fn command_syntax(help: &str) -> Vec<String> {
+            help.lines()
+                .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
+                .map(|line| line.trim_start().split("  ").next().unwrap_or_default().to_string())
+                .collect()
+        }
+        let translated = super::diagnostics::translate(super::USAGE);
+        assert!(translated.starts_with("uso: cargo xtask <command>\n\ncomandos:\n"), "current help must be translated: {translated}");
+        assert_eq!(command_syntax(&translated), command_syntax(super::USAGE));
+        for literal in [
+            "--from DIR",
+            "--bless",
+            "--results FILE",
+            "tests/action_matrix/baseline.json",
+            "tests/action_matrix/costs.json",
+            "docs/action-matrix.md",
+        ] {
+            assert!(translated.contains(literal), "help must preserve literal command syntax/path {literal}");
+        }
+    }
 }

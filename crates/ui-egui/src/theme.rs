@@ -123,7 +123,7 @@ impl TabAccent {
     }
 }
 
-/// Is the dark theme on?
+/// Is the dark theme on for this render thread?
 pub fn is_dark() -> bool {
     DARK.get()
 }
@@ -579,7 +579,7 @@ pub fn material_color(name: &str) -> Option<Color32> {
     solidcraft_engine::doc::material_color(name).map(|[r, g, b]| Color32::from_rgb(r, g, b))
 }
 
-/// Switch themes (the visuals follow on the next [`apply`]).
+/// Switch this render thread's theme (the visuals follow on the next [`apply`]).
 pub fn set_dark(dark: bool) {
     DARK.set(dark);
 }
@@ -622,6 +622,55 @@ pub fn apply(ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    /// Another render thread changing its theme must not recolour this thread's model.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn concurrent_render_threads_keep_their_own_theme() {
+        use super::{ColorVision, Tokens, is_dark, set_dark, set_vision, vision};
+        use std::sync::Barrier;
+
+        let previous = (is_dark(), vision());
+        let barrier = Barrier::new(2);
+        let (light_before, light_after, dark) = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let previous = (is_dark(), vision());
+                barrier.wait(); // The other render thread has selected its light palette.
+                set_dark(true);
+                set_vision(ColorVision::Off);
+                let before = Tokens::get();
+                barrier.wait(); // Publish dark before the light thread reads its own tokens.
+                barrier.wait(); // The light thread has captured its observation.
+                barrier.wait(); // It has selected light again before we read our own tokens.
+                let after = (is_dark(), Tokens::get());
+                set_dark(previous.0);
+                set_vision(previous.1);
+                (before, after)
+            });
+            set_dark(false);
+            set_vision(ColorVision::Off);
+            let before = Tokens::get();
+            barrier.wait();
+            barrier.wait();
+            let after = (is_dark(), Tokens::get());
+            barrier.wait();
+            set_dark(false);
+            barrier.wait();
+            (before, after, worker.join())
+        });
+        // Restore state and finish both threads before asserting, so no failed assertion can
+        // leave a thread waiting at a barrier or change the next test's palette.
+        set_dark(previous.0);
+        set_vision(previous.1);
+        let (dark_before, dark_after) = dark.expect("the other render thread should finish");
+        assert_eq!(light_before, Tokens::themed(false, ColorVision::Off));
+        assert!(!light_after.0, "another render thread replaced the light theme");
+        assert_eq!(light_after.1, light_before, "another render thread recoloured the light model");
+        assert_eq!(dark_before, Tokens::themed(true, ColorVision::Off));
+        assert!(dark_after.0, "another render thread replaced the dark theme");
+        assert_eq!(dark_after.1, dark_before, "another render thread recoloured the dark model");
+    }
+
+    /// Title and section bands stand out from a dialog, the title more than its sections.
     #[test]
     fn file_view_foreground_pairs_hold_small_text_contrast_without_changing_accent() {
         for dark in [false, true] {

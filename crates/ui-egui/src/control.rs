@@ -21,7 +21,7 @@
 //!   pointer input in screen points; `ui.scroll {x, y, delta}`: mouse-wheel input in
 //!   points (zooms); `ui.key {key, cmd?, shift?}`, `ui.text {text}`
 //! - `ui.screenshot {path?}`: PNG of the window; `ui.render {path, width?, height?, grid?, axes?}`:
-//!   headless CPU render of the model with the current camera, in the window's theme, with the
+//!   render of the model with the viewport's pipelines and current camera, in the window's theme, with the
 //!   section the viewport shows (no window needed); the ground grid and the origin's axes as the
 //!   window shows them, unless `grid` or `axes` says
 //! - `ui.icon_audit {reset?, stop?}`: collect/drain requested icon names, resolved masters and placeholder flags;
@@ -78,11 +78,34 @@ fn ok(v: Value) -> Outcome {
 fn err(e: impl std::fmt::Display) -> Outcome {
     Outcome::Done(json!({"ok": false, "error": e.to_string()}))
 }
+
+/// Only messages authored at this boundary use the UI language. Forwarded
+/// OS/vendor errors keep the opaque `err` path above.
+fn err_owned(message: impl std::fmt::Display) -> Outcome {
+    err(crate::i18n::diagnostic(&message.to_string()))
+}
 fn wrap(r: Result<Value, String>) -> Outcome {
     match r {
         Ok(v) => ok(v),
         Err(e) => err(e),
     }
+}
+
+fn wrap_owned(r: Result<Value, String>) -> Outcome {
+    match r {
+        Ok(v) => ok(v),
+        Err(e) => err(crate::display_error(&e)),
+    }
+}
+
+/// Localize only the presentation copy sent to a control-channel caller.
+/// The session and the UI's command processing keep their canonical values.
+pub(crate) fn present_command_result(locale: crate::i18n::Locale, id: &str, r: Result<Value, String>) -> Result<Value, String> {
+    r.map(|mut value| {
+        locale.command_result(id, &mut value);
+        value
+    })
+    .map_err(|e| locale.protocol_error(&e))
 }
 
 fn key_from(name: &str) -> Option<egui::Key> {
@@ -110,7 +133,7 @@ fn execute(app: &mut SolveApp, id: &str, params: Value) -> Result<Value, String>
     }
     // After the first-body fit, so a camera the command asked for (`view.apply`) wins.
     app.follow_view_request(false);
-    r
+    present_command_result(crate::i18n::Locale::for_language(&app.preferences.language), id, r)
 }
 
 /// A batch step's command id.
@@ -147,12 +170,12 @@ pub(crate) fn batch_step_command(step: &Value) -> Option<&str> {
 /// can send the steps one by one instead.
 fn batch(app: &mut SolveApp, p: &Value) -> Outcome {
     let Some(steps) = p.get("commands").and_then(Value::as_array).filter(|s| s.len() <= MAX_BATCH) else {
-        return err(format!("engine.batch: commands must be an array of at most {MAX_BATCH} steps"));
+        return err_owned(format!("engine.batch: commands must be an array of at most {MAX_BATCH} steps"));
     };
     // (With the agent cursor shown, the pointer has already acted out a short summary of the
     // batch: `agent_cursor::intercept`.)
     if let Some(why) = batch_refusal(steps) {
-        return err(why);
+        return err_owned(why);
     }
     let rollback = p.get("rollback").and_then(Value::as_bool).unwrap_or(true);
     let profile = p.get("profile").and_then(Value::as_bool).unwrap_or(false);
@@ -164,7 +187,7 @@ fn batch(app: &mut SolveApp, p: &Value) -> Outcome {
     for (i, step) in steps.iter().enumerate() {
         let (r, took) = timing::time(profile, || match command(step) {
             Some(id) => execute(app, id, step.get("params").cloned().filter(|v| !v.is_null()).unwrap_or(json!({}))),
-            None => Err("missing `command`".to_string()),
+            None => Err(crate::i18n::diagnostic("missing `command`")),
         });
         if timed {
             rows.push(took.to_json(i, command(step).unwrap_or_default()));
@@ -201,7 +224,7 @@ fn with_timings(mut reply: Value, timed: bool, rows: Vec<Value>, total_ms: f64) 
 pub fn request_scope(app: &SolveApp, params: &Value) -> Result<Option<vfs::PathScope>, String> {
     let Some(allowed) = params.get("allow_paths") else { return Ok(None) };
     let Some(roots) = allowed.as_array().and_then(|a| a.iter().map(|r| r.as_str().map(std::path::PathBuf::from)).collect::<Option<Vec<_>>>()) else {
-        return Err("`allow_paths` must be a list of folders".into());
+        return Err(crate::i18n::diagnostic("`allow_paths` must be a list of folders"));
     };
     // Plus the app's own recovery folder and, when it is a safe one, the open design's folder.
     let roots = roots.into_iter().chain(solidcraft_engine::recovery::default_dir());
@@ -243,6 +266,7 @@ pub fn view_png(app: &SolveApp, w: u32, h: u32) -> Result<Vec<u8>, String> {
 }
 
 pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
+    let _language = crate::i18n::scope(&app.preferences.language);
     let scope = match request_scope(app, &req.params) {
         Ok(Some(scope)) => scope,
         Ok(None) => return dispatch(app, ctx, &req.method, &req.params),
@@ -264,16 +288,16 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
         "ui.workspace" => {
             if let Some(workspace) = s("workspace") {
                 if !matches!(workspace, "design" | "render") {
-                    return err("workspace must be design or render");
+                    return err_owned("workspace must be design or render");
                 }
                 if let Err(e) = crate::render_workspace::enter(app, workspace == "render") {
-                    return err(e);
+                    return err_owned(e);
                 }
             }
             ok(json!({"workspace":if crate::render_workspace::active(app) {"render"} else {"design"}}))
         }
         "engine.execute" | "command" => {
-            let Some(id) = s("command").or(s("id")) else { return err("missing `command`") };
+            let Some(id) = s("command").or(s("id")) else { return err_owned("missing `command`") };
             wrap(execute(app, id, p.get("params").cloned().filter(|v| !v.is_null()).unwrap_or(json!({}))))
         }
         "engine.batch" => batch(app, p),
@@ -288,18 +312,34 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             if let Some(v) = p.get("speed") {
                 match crate::agent_cursor::Speed::from_value(v) {
                     Some(sp) => s.speed = sp,
-                    None => return err("speed must be a number from 1 to 5, or \"instant\""),
+                    None => return err_owned("speed must be a number from 1 to 5, or \"instant\""),
                 }
             }
             ok(json!(app.ui.agent_cursor))
         }
         "engine.script" => {
-            let r = app.session.run_script(p).map(|v| json!(v)).map_err(|e| e.to_string());
+            let locale = crate::i18n::Locale::for_language(&app.preferences.language);
+            let r = app
+                .session
+                .run_script(p)
+                .map(|mut results| {
+                    let steps = p.as_array().or_else(|| p.get("commands").and_then(Value::as_array));
+                    for (step, result) in steps.into_iter().flatten().zip(results.iter_mut()) {
+                        if let Some(id) = command(step) {
+                            locale.command_result(id, result);
+                        }
+                    }
+                    json!(results)
+                })
+                .map_err(|e| locale.protocol_error(&e.to_string()));
             app.follow_view_request(false);
             wrap(r)
         }
-        "engine.commands" => wrap(app.session.execute("engine.commands", &json!({})).map_err(|e| e.to_string())),
-        "document.inspect" => wrap(app.session.execute("document.inspect", p).map_err(|e| e.to_string())),
+        "engine.commands" | "document.inspect" => {
+            let params = if method == "engine.commands" { json!({}) } else { p.clone() };
+            let result = app.session.execute(method, &params).map_err(|e| e.to_string());
+            wrap(present_command_result(crate::i18n::Locale::for_language(&app.preferences.language), method, result))
+        }
         "ui.messages" => ok(crate::messages::control(app, p)),
         "ui.inspect" => ok(json!({
             "ui": serde_json::to_value(&app.ui).unwrap_or_default(),
@@ -326,7 +366,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             "quitting": app.docs.quitting.is_some(),
         })),
         "ui.file" => {
-            let Some(path) = s("path") else { return err("path is required") };
+            let Some(path) = s("path") else { return err_owned("path is required") };
             if p.get("insert").and_then(Value::as_bool).unwrap_or(false) {
                 app.insert_path_async(path);
             } else {
@@ -389,7 +429,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             app.viewport.orbit_free = None;
             if p.get("animate").and_then(Value::as_bool).unwrap_or(false) {
                 if v != "fit" && v != "home" && StandardView::parse(v).is_none() {
-                    return err(format!("unknown view `{v}`"));
+                    return err_owned(format!("unknown view `{v}`"));
                 }
                 app.animate_view(v);
                 return ok(json!({ "animating": true, "to": app.cam_anim.map(|a| a.to) }));
@@ -403,12 +443,12 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
                 }
                 v => match StandardView::parse(v) {
                     Some(sv) => app.cam.set_view(sv),
-                    None => return err(format!("unknown view `{v}`")),
+                    None => return err_owned(format!("unknown view `{v}`")),
                 },
             }
             ok(json!(app.cam))
         }
-        "ui.camera" => wrap(camera(app, p)),
+        "ui.camera" => wrap_owned(camera(app, p)),
         "ui.palette" => {
             if p.get("open").and_then(Value::as_bool) == Some(false) {
                 app.ui.palette_open = false;
@@ -422,11 +462,11 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             ok(json!({"open": app.ui.palette_open, "text": app.sbox.text}))
         }
         "ui.start" => {
-            let Some(id) = s("command") else { return err("missing `command`") };
+            let Some(id) = s("command") else { return err_owned("missing `command`") };
             // `params`: what the dialog opens on. Refused: nothing starts, or the dialog closes.
             let params = p.get("params").filter(|v| !v.is_null());
             if params.is_some() && id != "joint.drive" && id != "motion.study" {
-                return err(format!("`{id}` takes no ui.start params yet (joint.drive takes joint, values; motion.study takes study)"));
+                return err_owned(format!("`{id}` takes no ui.start params yet (joint.drive takes joint, values; motion.study takes study)"));
             }
             app.start(id);
             if let Some(params) = params.filter(|_| id == "motion.study") {
@@ -439,23 +479,23 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
                 }
             } else if let Some(params) = params {
                 if app.tree.capture_prompt.is_some() {
-                    return err("Drive Joints waits for the Capture Position question (ui.capture)");
+                    return err_owned("Drive Joints waits for the Capture Position question (ui.capture)");
                 }
                 let Some(crate::dialogs::Kind::Assembly(k)) = app.dialog.as_mut().map(|d| &mut d.kind) else {
                     let why = app.status.as_ref().filter(|s| s.2).map(|s| s.0.clone());
-                    return err(why.unwrap_or_else(|| "Drive Joints did not open".into()));
+                    return err(why.unwrap_or_else(|| crate::i18n::diagnostic("Drive Joints did not open")));
                 };
                 if let Err(e) = crate::dialogs_assembly::preset(&app.session, k, params) {
                     crate::dialogs::cancel(app);
-                    return err(e);
+                    return err_owned(e);
                 }
             }
             ok(json!({"tool": app.tool.as_ref().map(|t| t.cmd), "dialog": app.dialog.as_ref().map(|d| format!("{d:?}"))}))
         }
         "ui.move" | "ui.click" => {
-            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err("missing x/y") };
+            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err_owned("missing x/y") };
             if x.abs() > 1e6 || y.abs() > 1e6 {
-                return err("x/y must be within ±1000000 screen points");
+                return err_owned("x/y must be within ±1000000 screen points");
             }
             let pos = egui::pos2(x as f32, y as f32);
             let modifiers = if method == "ui.move" {
@@ -481,7 +521,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             ok(Value::Null)
         }
         "ui.drag" => {
-            let (Some(x0), Some(y0), Some(x1), Some(y1)) = (f("x0"), f("y0"), f("x1"), f("y1")) else { return err("missing x0/y0/x1/y1") };
+            let (Some(x0), Some(y0), Some(x1), Some(y1)) = (f("x0"), f("y0"), f("x1"), f("y1")) else { return err_owned("missing x0/y0/x1/y1") };
             let button = match s("button") {
                 Some("right") => egui::PointerButton::Secondary,
                 Some("middle") => egui::PointerButton::Middle,
@@ -512,9 +552,9 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             let key = match p.get("feature") {
                 Some(Value::Number(n)) => n.to_string(),
                 Some(Value::String(x)) => x.clone(),
-                _ => return err("`feature` must be an id or name"),
+                _ => return err_owned("`feature` must be an id or name"),
             };
-            let Some(id) = app.session.doc.find_feature(&key).map(|f| f.id) else { return err(format!("no feature `{key}`")) };
+            let Some(id) = app.session.doc.find_feature(&key).map(|f| f.id) else { return err_owned(format!("no feature `{key}`")) };
             app.edit_feature(id);
             ok(json!({"dialog": app.dialog.as_ref().map(|d| format!("{d:?}")), "marker": app.session.doc.marker}))
         }
@@ -528,7 +568,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
         })),
         "ui.triad" => {
             // Screen points of the 3D move triad's handles (x, y, z arrows and the plane square).
-            let Some(rect) = app.viewport.rect else { return err("no viewport") };
+            let Some(rect) = app.viewport.rect else { return err_owned("no viewport") };
             let proj = crate::viewport::projection(app, rect);
             ok(json!(
                 crate::sketch3d::handle_points(app, &proj).into_iter().map(|(n, p)| json!({"handle": n, "x": p.x, "y": p.y})).collect::<Vec<_>>()
@@ -542,7 +582,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
                     d.active = i;
                     ok(json!({"label": d.inputs.get(i).map(|x| x.label)}))
                 }
-                _ => err("no dialog input with that index"),
+                _ => err_owned("no dialog input with that index"),
             }
         }
         "ui.handles" => {
@@ -553,12 +593,12 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
         "ui.at" => {
             if let Some(path) = p.get("occurrence").and_then(Value::as_array) {
                 let ids: Option<Vec<u64>> = path.iter().map(Value::as_u64).collect();
-                let Some(ids) = ids else { return err("occurrence path must contain integer ids") };
+                let Some(ids) = ids else { return err_owned("occurrence path must contain integer ids") };
                 let key = ids.iter().map(u64::to_string).collect::<Vec<_>>().join("/");
                 let control = s("control").unwrap_or("row");
                 return match crate::scenario::handle_at(&format!("{control}:occurrence:{key}")) {
                     Some(q) => ok(json!([q.x, q.y])),
-                    None => err("occurrence row or control is not shown"),
+                    None => err_owned("occurrence row or control is not shown"),
                 };
             }
             // A scenario point: {world: [x,y,z]} | {sketch: [x,y]} | {plane: "XY"} (the middle of an
@@ -566,7 +606,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             if let Some(h) = p.get("handle").and_then(Value::as_str) {
                 return match crate::scenario::handle_at(h) {
                     Some(q) => ok(json!([q.x, q.y])),
-                    None => err(format!("handle {h} is not shown")),
+                    None => err_owned(format!("handle {h} is not shown")),
                 };
             }
             // A browser row by its label: the row itself, or its fold arrow.
@@ -579,17 +619,17 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
                         .and_then(|r| if chevron { r.2.map(|f| f.center()) } else { Some(r.1.left_center() + egui::vec2(120.0, 0.0)) });
                     return match found {
                         Some(q) => ok(json!([q.x, q.y])),
-                        None => err(format!("no browser row `{label}`{} on screen", if chevron { " with a fold arrow" } else { "" })),
+                        None => err_owned(format!("no browser row `{label}`{} on screen", if chevron { " with a fold arrow" } else { "" })),
                     };
                 }
             }
             if let Some(d) = p.get("dimension").and_then(Value::as_str) {
                 return match crate::dim_view::text_at(d) {
                     Some(q) => ok(json!([q.x, q.y])),
-                    None => err(format!("dimension {d} is not shown")),
+                    None => err_owned(format!("dimension {d} is not shown")),
                 };
             }
-            let Some(rect) = app.viewport.rect else { return err("no viewport") };
+            let Some(rect) = app.viewport.rect else { return err_owned("no viewport") };
             let proj = crate::viewport::projection(app, rect);
             let num = |v: &Value, i: usize| v.get(i).and_then(Value::as_f64).unwrap_or(0.0);
             let world = if let Some(w) = p.get("world") {
@@ -616,11 +656,11 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             };
             match world.and_then(|w| proj.to_screen(w)) {
                 Some(q) => ok(json!([q.x, q.y])),
-                None => err(format!("not on screen: {}", p)),
+                None => err_owned(format!("not on screen: {}", p)),
             }
         }
         "ui.worldToScreen" => {
-            let Some(rect) = app.viewport.rect else { return err("no viewport") };
+            let Some(rect) = app.viewport.rect else { return err_owned("no viewport") };
             let proj = crate::viewport::projection(app, rect);
             let pts: Vec<Value> = p
                 .get("points")
@@ -639,7 +679,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             // Screen points of active-sketch coordinates (for driving sketch interaction).
             let st = app.session.world_state();
             let (Some(rect), Some(ss)) = (app.viewport.rect, app.session.active_sketch.and_then(|s| st.sketch(s))) else {
-                return err("no active sketch in a drawn viewport");
+                return err_owned("no active sketch in a drawn viewport");
             };
             let proj = crate::viewport::projection(app, rect);
             let pts: Vec<Value> = p
@@ -657,7 +697,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             ok(json!(pts))
         }
         "ui.scroll" => {
-            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err("missing x/y") };
+            let (Some(x), Some(y)) = (f("x"), f("y")) else { return err_owned("missing x/y") };
             app.synthetic.push(egui::Event::PointerMoved(egui::pos2(x as f32, y as f32)));
             // Mouse-wheel semantics (lines): zooms regardless of the trackpad pan
             // preference, so scripts and agents keep working. Trackpads report points.
@@ -672,7 +712,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             ok(Value::Null)
         }
         "ui.key" => {
-            let Some(key) = s("key").and_then(key_from) else { return err("unknown key") };
+            let Some(key) = s("key").and_then(key_from) else { return err_owned("unknown key") };
             let modifiers = egui::Modifiers { shift: b("shift"), command: b("cmd"), ctrl: b("cmd") || b("ctrl"), ..Default::default() };
             app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
             app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers });
@@ -715,17 +755,17 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
                 if crate::delete::confirm(app, a) {
                     ok(json!({"accepted": a}))
                 } else {
-                    err("nothing is waiting for a confirmation")
+                    err_owned("nothing is waiting for a confirmation")
                 }
             }
             None => ok(json!({"pending": app.menu.confirm.as_ref().map(|c| c.report.clone())})),
         },
         "ui.shortcut" => {
-            let Some(id) = s("command") else { return err("missing `command`") };
+            let Some(id) = s("command") else { return err_owned("missing `command`") };
             match s("key") {
                 Some(k) => match crate::keymap::bind(app, id, k, b("replace")) {
                     Ok(()) => ok(json!({"command": id, "key": crate::keymap::effective(app, id)})),
-                    Err(e) => err(e),
+                    Err(e) => err(crate::display_error(&e)),
                 },
                 None => ok(json!({"command": id, "key": crate::keymap::effective(app, id)})),
             }
@@ -739,7 +779,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
         "ui.capture" => match s("action") {
             Some(a) => match crate::browser::answer_capture(app, a) {
                 Ok(()) => ok(json!({"pending_moves": app.session.pending_moves.len()})),
-                Err(e) => err(e),
+                Err(e) => err_owned(e),
             },
             None => ok(json!({"question": app.tree.capture_prompt, "pending_moves": app.session.pending_moves.len()})),
         },
@@ -756,24 +796,24 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
                 json!({"diagnostics": crate::help::diagnostics(app), "version": crate::help::VERSION, "commit": crate::help::COMMIT, "built": crate::help::BUILD_DATE}),
             ),
         },
-        "ui.selectOther" => wrap(crate::select_other::control(app, p)),
+        "ui.selectOther" => wrap_owned(crate::select_other::control(app, p)),
         "ui.menuPick" => {
-            let Some(key) = s("item") else { return err("missing `item` (id or label)") };
-            wrap(crate::context_menu::pick(app, key))
+            let Some(key) = s("item") else { return err_owned("missing `item` (id or label)") };
+            wrap_owned(crate::context_menu::pick(app, key))
         }
         "ui.rename" => {
             if crate::context_menu::finish_rename(app, s("text"), p.get("commit").and_then(Value::as_bool).unwrap_or(true)) {
                 ok(json!({"done": true}))
             } else {
-                err("no rename in progress")
+                err_owned("no rename in progress")
             }
         }
         "ui.window" => match crate::titlebar::window_action(app, ctx, s("action").unwrap_or("")) {
             Ok(()) => ok(json!({"custom_titlebar": app.custom_titlebar, "maximized": ctx.input(|i| i.viewport().maximized)})),
-            Err(e) => err(e),
+            Err(e) => err_owned(e),
         },
         "ui.resize" => {
-            let (Some(w), Some(h)) = (f("width"), f("height")) else { return err("missing width/height") };
+            let (Some(w), Some(h)) = (f("width"), f("height")) else { return err_owned("missing width/height") };
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w.clamp(320.0, 8192.0) as f32, h.clamp(240.0, 8192.0) as f32)));
             ok(Value::Null)
         }
@@ -798,10 +838,10 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             let scene = view_scene(app, guides);
             let png = match solidcraft_engine::capture::png(&scene, &app.cam, w, h) {
                 Ok(png) => png,
-                Err(e) => return err(format!("render failed: {e}")),
+                Err(e) => return err(format!("{}: {e}", crate::i18n::diagnostic("render failed"))),
             };
             // What drew it (gpu, gpu-software or cpu), and the warning a CPU render carries.
-            let (renderer, warning) = (png.renderer, solidcraft_engine::capture::warning(png.renderer));
+            let (renderer, warning) = (png.renderer, solidcraft_engine::capture::warning(png.renderer).map(crate::i18n::diagnostic));
             match s("path") {
                 Some(path) => match vfs::check(path).and_then(|()| std::fs::write(path, &png.bytes)) {
                     Ok(()) => ok(json!({"path": path, "bytes": png.bytes.len(), "renderer": renderer, "warning": warning})),
@@ -822,7 +862,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             }
             ok(json!({"quitting": app.quit_requested, "asking": app.docs.closing.is_some()}))
         }
-        other => err(format!("unknown method `{other}`")),
+        other => err_owned(format!("unknown method `{other}`")),
     }
 }
 
@@ -922,7 +962,9 @@ pub fn save_screenshot(image: &egui::ColorImage, path: Option<&str>) -> Value {
     for c in &image.pixels {
         buf.extend_from_slice(&c.to_array());
     }
-    let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, buf) else { return json!({"ok": false, "error": "bad image"}) };
+    let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, buf) else {
+        return json!({"ok": false, "error": crate::i18n::diagnostic("bad image")});
+    };
     let path = path.map(str::to_string).unwrap_or_else(|| std::env::temp_dir().join("solidcraft-shot.png").to_string_lossy().to_string());
     match img.save(&path) {
         Ok(()) => json!({"ok": true, "result": {"path": path, "width": w, "height": h}}),
@@ -937,6 +979,63 @@ mod tests {
 
     use super::*;
     use crate::Services;
+
+    #[test]
+    fn owned_control_errors_use_the_preference_and_keep_identifiers_and_external_details() {
+        let mut app = SolveApp::new(Session::default(), Services::default());
+        app.preferences.language = "pt-BR".into();
+        let method = "ui.missing:{name}";
+        let (request, _reply) = ControlRequest::new(method, json!({}));
+        let Outcome::Done(response) = handle(&mut app, &egui::Context::default(), &request) else { panic!("expected immediate error") };
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"], format!("método `{method}` desconhecido"));
+        let (request, _reply) = ControlRequest::new("ui.start", json!({}));
+        let Outcome::Done(response) = handle(&mut app, &egui::Context::default(), &request) else { panic!("expected immediate error") };
+        assert!(response["error"].as_str().unwrap().contains("`command`"));
+        assert!(!response["error"].as_str().unwrap().contains("missing"));
+        let _language = crate::i18n::scope("pt-BR");
+        let Outcome::Done(response) = err("division by zero") else { panic!("expected immediate error") };
+        assert_eq!(response["error"], "division by zero", "a forwarded detail is opaque even if it resembles catalog prose");
+        let name = "solid.box: expression: division by zero";
+        assert!(
+            crate::friendly_error("solid.box", &format!("unknown body `{name}`")).contains(name),
+            "command framing must not replace text inside an authored name"
+        );
+    }
+
+    #[test]
+    fn command_control_localizes_presentation_and_keeps_session_data_canonical() {
+        let mut app = SolveApp::new(Session::default(), Services::default());
+        app.preferences.language = "pt-BR".into();
+        std::sync::Arc::make_mut(&mut app.session.doc).name = "division by zero:{name}".into();
+        let ctx = egui::Context::default();
+        let call = |app: &mut SolveApp, method, params| {
+            let (request, _reply) = ControlRequest::new(method, params);
+            let Outcome::Done(response) = handle(app, &ctx, &request) else { panic!("expected immediate response") };
+            response
+        };
+        let missing = "missing:{name}";
+        let response = call(&mut app, "engine.execute", json!({"command": missing}));
+        assert_eq!(response["error"], format!("comando desconhecido: `{missing}`"));
+        let response = call(&mut app, "engine.execute", json!({"command": "solid.box", "params": {"length": "1 / 0", "width": 10, "height": 10}}));
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("divisão por zero"), "{response}");
+        assert!(app.status.as_ref().unwrap().0.contains("divisão por zero"), "the visible status must translate the same expression detail");
+        let canonical = app.session.execute("document.inspect", &json!({})).unwrap();
+        let response = call(&mut app, "document.inspect", json!({}));
+        assert_eq!(response["result"], canonical, "authored names and model fields are not prose");
+        assert_eq!(app.session.doc.name, "division by zero:{name}");
+        let response = call(&mut app, "engine.batch", json!({"commands": [{}]}));
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["failed"]["index"], 0);
+        assert_eq!(response["result"]["failed"]["command"], Value::Null);
+        assert_eq!(response["result"]["failed"]["error"], "`command` ausente");
+        // Serde's error belongs to the external parser, including this English data value.
+        let params = json!({"msaa": "division by zero"});
+        let parser_error = crate::prefs::set(&mut app, &params).unwrap_err();
+        let response = call(&mut app, "ui.prefs", params);
+        assert_eq!(response["error"], parser_error);
+    }
 
     #[test]
     fn touchpad_automation_moves_with_modifiers_and_releases_without_buttons() {

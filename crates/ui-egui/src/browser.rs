@@ -298,6 +298,8 @@ pub(crate) struct Row<'a> {
     pub(crate) eye: Option<bool>,
     pub(crate) icon: &'a str,
     pub(crate) label: &'a str,
+    /// Explicit display text for document names and labels containing a document name.
+    pub(crate) display: Option<String>,
     /// The label is a name someone gave (a body, sketch, component, …): it is shown as typed,
     /// not translated when it happens to match a UI label.
     pub(crate) name: bool,
@@ -429,7 +431,8 @@ pub(crate) fn draw_row(ui: &mut egui::Ui, id: egui::Id, row: &Row) -> RowResp {
     }
     let col =
         if row.selected { crate::theme::TabAccent::current(ui.ctx()).ink } else { row.color.unwrap_or(if row.dim { t.text_dim } else { t.text }) };
-    let label_display = if row.name { crate::i18n::tr_name(row.label) } else { crate::i18n::tr_dyn(row.label) };
+    let label_display =
+        row.display.clone().unwrap_or_else(|| if row.name { crate::i18n::tr_name(row.label) } else { crate::i18n::tr_dyn(row.label) });
     let font = if row.selected { crate::fonts::semibold(t.font_label) } else { FontId::proportional(t.font_label) };
     // The label stops before the badges and the card's edge; a longer name ends in an ellipsis
     // and its full text is in the tooltip.
@@ -964,6 +967,19 @@ fn component_name(app: &SolveApp, id: u64) -> String {
     crate::dialogs_part_size::browser_label(app, id, &name)
 }
 
+fn component_display_name(app: &SolveApp, id: u64) -> String {
+    if id == 0 {
+        return crate::i18n::tr_name(&app.session.doc.name);
+    }
+    let doc = &app.session.doc;
+    let name = doc.components.iter().find(|c| c.id == id).map(|c| c.name.as_str()).unwrap_or_default();
+    let name = crate::i18n::tr_name(name);
+    let count = doc.occurrences.iter().filter(|o| o.component == id).count();
+    let name =
+        if count > 1 { crate::i18n::format("browser.instances", &[("name", &name), ("count", &count.to_string())]) } else { format!("{name}:1") };
+    crate::dialogs_part_size::browser_label(app, id, &name)
+}
+
 fn component_rows(app: &mut SolveApp, ui: &mut egui::Ui, id: u64, depth: usize, acts: &mut Actions) {
     let t = Tokens::get();
     let key = format!("c{id}");
@@ -981,7 +997,7 @@ fn component_rows(app: &mut SolveApp, ui: &mut egui::Ui, id: u64, depth: usize, 
         eye: (id != 0).then_some(visible),
         icon: "component",
         label: &name,
-        name: true,
+        display: Some(component_display_name(app, id)),
         selected: app.tree.picked_components.contains(&id),
         dim: faded,
         radio: Some(active),
@@ -1118,10 +1134,14 @@ fn occurrence_rows(app: &mut SolveApp, ui: &mut egui::Ui, path: Vec<u64>, depth:
             .map(|o| o.name.as_str())
             .collect::<Vec<_>>()
             .join(" / ");
-        let inherited = if own_visible && !visible { "\nHidden by a parent placement. Show the parent to reveal this instance." } else { "" };
-        resp.clone().on_hover_text(format!(
-            "Component: {definition}\nPlacement: {}\nGeometry edits apply to every instance of this component.{inherited}",
-            location
+        let inherited = if own_visible && !visible {
+            crate::i18n::tr_label("\nHidden by a parent placement. Show the parent to reveal this instance.")
+        } else {
+            ""
+        };
+        resp.clone().on_hover_text(crate::i18n::format(
+            "browser.placement_tooltip",
+            &[("definition", definition), ("placement", &location), ("inherited", inherited)],
         ));
     }
     if r.fold {
@@ -1317,7 +1337,7 @@ fn named_view_rows(app: &mut SolveApp, ui: &mut egui::Ui, depth: usize, acts: &m
         let r = draw_row(
             ui,
             ui.id().with(("view", &name)),
-            &Row { depth: depth + 1, icon: "perspective", label: &name, name: true, ..Default::default() },
+            &Row { depth: depth + 1, icon: "perspective", label: &name, display: Some(crate::i18n::tr_name(&name)), ..Default::default() },
         );
         if r.double {
             restore_view(app, &name);
@@ -1597,6 +1617,7 @@ struct Entry {
     /// The key in [`TreeState`] row order (`b:`, `s:`, `p:`).
     row_key: String,
     label: String,
+    display: String,
     icon: &'static str,
     visible: bool,
     selected: bool,
@@ -1631,6 +1652,7 @@ fn entries(app: &SolveApp, comp: u64, folder: &str) -> Vec<Entry> {
                 key: b.name.clone(),
                 row_key: format!("b:{}", b.name),
                 label: b.name.clone(),
+                display: crate::i18n::tr_name(&b.name),
                 icon: "body",
                 visible: !app.session.visibility.hidden_bodies.contains(&b.name),
                 selected: sel.iter().any(|x| matches!(x, Sel::Body { name } if *name == b.name)),
@@ -1658,6 +1680,13 @@ fn entries(app: &SolveApp, comp: u64, folder: &str) -> Vec<Entry> {
                     } else {
                         f.name.clone()
                     },
+                    display: if lost {
+                        crate::i18n::format("browser.attachment_lost", &[("name", &crate::i18n::tr_name(&f.name))])
+                    } else if active {
+                        crate::i18n::format("browser.editing", &[("name", &crate::i18n::tr_name(&f.name))])
+                    } else {
+                        crate::i18n::tr_name(&f.name)
+                    },
                     icon: "sketch",
                     visible: sketch_visible(app, f.id),
                     selected: active || sel.iter().any(|x| matches!(x, Sel::Feature { id } if *id == f.id)),
@@ -1676,6 +1705,7 @@ fn entries(app: &SolveApp, comp: u64, folder: &str) -> Vec<Entry> {
                 key: f.id.to_string(),
                 row_key: format!("p:{}", f.id),
                 label: f.name.clone(),
+                display: crate::i18n::tr_name(&f.name),
                 icon: crate::timeline::icon_of(&f.kind),
                 visible: !app.session.visibility.hidden_origin.contains(&f.name),
                 selected: sel.iter().any(|x| matches!(x, Sel::Plane { name } if *name == f.name)),
@@ -1934,6 +1964,7 @@ fn entry_row(
             eye: Some(e.visible),
             icon: e.icon,
             label: &e.label,
+            display: Some(e.display.clone()),
             name: true,
             selected,
             dim: !e.visible || parent_hidden,

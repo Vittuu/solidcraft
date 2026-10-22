@@ -40,6 +40,7 @@ impl SolveApp {
 
     /// Open a file of this type: the picker offers these extensions first (#1801).
     pub(crate) fn pick_open_for(&mut self, extensions: &[&str], complete: impl FnOnce(&mut SolveApp, Option<String>) + 'static) {
+        let _language = crate::i18n::scope(&self.preferences.language);
         if self.file_picker_busy() {
             return;
         }
@@ -63,6 +64,7 @@ impl SolveApp {
     }
 
     pub(crate) fn pick_save(&mut self, name: &str, extensions: &[&str], complete: impl FnOnce(&mut SolveApp, Option<String>) + 'static) {
+        let _language = crate::i18n::scope(&self.preferences.language);
         if self.file_picker_busy() {
             return;
         }

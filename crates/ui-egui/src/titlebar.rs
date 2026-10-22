@@ -116,7 +116,7 @@ pub fn caption_buttons(app: &mut SolveApp, ui: &mut Ui, bar: Rect) {
             Caption::Maximize => "Maximize",
             Caption::Close => "Close",
         };
-        if resp.on_hover_text(tip).clicked() {
+        if resp.on_hover_text(crate::i18n::tr_label(tip)).clicked() {
             clicked = Some(c);
         }
     }

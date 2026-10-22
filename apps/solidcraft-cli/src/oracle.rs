@@ -222,7 +222,7 @@ fn reference_checks(s: &solidcraft_engine::Session, stl: &str, tol: f64, c: &mut
     c.push("principal_moments_mm5", json!(pa), json!(pb), ok);
 }
 
-fn report(args: &[String], results: &[Value]) {
+fn report(args: &[String], results: &[Value], locale: solidcraft_engine::i18n::Locale) {
     if args.iter().any(|a| a == "--json") {
         println!("{}", serde_json::to_string_pretty(&Value::Array(results.to_vec())).unwrap_or_default());
         return;
@@ -235,14 +235,15 @@ fn report(args: &[String], results: &[Value]) {
         } else {
             "FAIL"
         };
+        let status = locale.protocol_error(status);
         let detail: Vec<String> = r["checks"]
             .as_array()
             .into_iter()
             .flatten()
             .filter(|c| !c["ok"].as_bool().unwrap_or(false))
-            .map(|c| format!("{} got {} want {}", c["check"].as_str().unwrap_or(""), c["got"], c["want"]))
+            .map(|c| human_format!(locale, "{} got {} want {}", c["check"].as_str().unwrap_or(""), c["got"], c["want"]))
             .collect();
-        let err = r["error"].as_str().map(|e| format!(" ({e})")).unwrap_or_default();
+        let err = r["error"].as_str().map(|e| format!(" ({})", locale.protocol_error(e))).unwrap_or_default();
         println!(
             "{status} {}{err}{}",
             r["case"].as_str().unwrap_or(""),
@@ -251,13 +252,13 @@ fn report(args: &[String], results: &[Value]) {
     }
 }
 
-pub fn run(args: &[String]) -> Result<(), String> {
+pub fn run(args: &[String], locale: solidcraft_engine::i18n::Locale) -> Result<(), String> {
     let dirs: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
     if dirs.is_empty() {
         return Err("oracle: give one or more case directories (each with recipe.json and expected.json)".into());
     }
     let results: Vec<Value> = dirs.iter().map(|d| check_case(d)).collect();
-    report(args, &results);
+    report(args, &results, locale);
     let failed = results.iter().filter(|r| !r["pass"].as_bool().unwrap_or(false) && !r["skipped"].as_bool().unwrap_or(false)).count();
     if failed > 0 { Err(format!("{failed} oracle case(s) failed")) } else { Ok(()) }
 }

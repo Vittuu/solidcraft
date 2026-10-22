@@ -46,7 +46,7 @@ fn save_library(app: &mut SolveApp, token: Arc<()>, overwrite: bool) {
                     k.local.catalog = parsed;
                     k.local.selected = None;
                     k.local.search.clear();
-                    k.note = Some(format!("Saved {count} reusable definitions. The design is unchanged."));
+                    k.note = Some(crate::i18n::format("library.saved_definitions", &[("count", &count.to_string())]));
                 }
             }
             Err(error) => {
@@ -85,7 +85,7 @@ fn export(app: &mut SolveApp, k: &mut Ap, path: String, overwrite: bool) {
             k.local.catalog = parsed;
             k.local.selected = None;
             k.local.search.clear();
-            format!("Saved {count} reusable definitions. The design is unchanged.")
+            crate::i18n::format("library.saved_definitions", &[("count", &count.to_string())])
         }
         Err(error) => error,
     });
@@ -95,7 +95,7 @@ fn export(app: &mut SolveApp, k: &mut Ap, path: String, overwrite: bool) {
 fn load(app: &mut SolveApp, library: &mut LocalLibrary) -> Result<String, String> {
     let result = app.run("library.inspect", json!({"path":library.path}))?;
     let catalog: Catalog = serde_json::from_value(result.get("catalog").cloned().ok_or("Library response is missing")?).map_err(|e| e.to_string())?;
-    let note = format!("Opened {} ({} entries)", catalog.name, catalog.entries.len());
+    let note = crate::i18n::format("library.opened", &[("name", &catalog.name), ("count", &catalog.entries.len().to_string())]);
     library.catalog = Some(display_order(catalog));
     library.selected = None;
     library.search.clear();
@@ -240,9 +240,9 @@ fn import_rows(app: &mut SolveApp, ui: &mut egui::Ui, k: &mut Ap, inputs: &[SelI
                     k.look = Some(look.name.clone());
                     k.remove_override = false;
                     k.applied = selected_params(k, picked);
-                    format!("{} copied into this design", look.name)
+                    crate::i18n::format("library.copied", &[("name", &look.name)])
                 } else {
-                    "This panel applies appearance presets only".into()
+                    crate::i18n::tr_label("This panel applies appearance presets only").into()
                 }
             }
             Err(error) => error,

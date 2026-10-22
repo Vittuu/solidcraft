@@ -10,9 +10,8 @@
 //! non-zero exit for CI; `--add-missing` writes the uncovered command labels into the English
 //! catalog under `cmd.<command id>` so a translator only has to fill in the other catalogs.
 //!
-//! German and Korean predate the coverage guards and are still partial, so their gaps are
-//! reported but do not fail `--check`; the catalogs delivered complete (`COMPLETE`) may not
-//! regress.
+//! German, Korean, French, Russian and Ukrainian are partial, so their gaps are reported but do not
+//! fail `--check`; the catalogs delivered complete (`COMPLETE`) may not regress.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -24,7 +23,7 @@ const DIR: &str = "assets/locales";
 
 /// Catalogs delivered complete: a missing message here fails `--check`. English is the source
 /// catalog and is checked implicitly; keep this in step with `COMPLETE` in `ui-egui::i18n`.
-const COMPLETE: &[&str] = &["ja", "zh"];
+const COMPLETE: &[&str] = &["ja", "zh", "pt-BR"];
 
 /// What `run` found.
 #[derive(Default)]
@@ -73,7 +72,7 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
 
     if args.contains(&"--add-missing") {
         let added = add_missing(root, &mut report)?;
-        println!("i18n: wrote {added} new English message(s) into {DIR}/en.json");
+        humanln!("i18n: wrote {added} new English message(s) into {DIR}/en.json");
         return Ok(());
     }
 
@@ -89,14 +88,14 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
             ));
         }
         if report.reported_only() > 0 {
-            println!(
+            humanln!(
                 "i18n: every complete catalog ({}) carries every English message and every command label is translatable; \
-                 {} message(s) are still missing from the partial catalogs (de, ko)",
+                 {} message(s) are still missing from the partial catalogs (de, fr, ko, ru, uk)",
                 COMPLETE.join(", "),
                 report.reported_only()
             );
         } else {
-            println!("i18n: every catalog carries every English message; every command label is translatable");
+            humanln!("i18n: every catalog carries every English message; every command label is translatable");
         }
     }
     Ok(())
@@ -155,7 +154,7 @@ fn labels_needing_translation(known: &[&str]) -> BTreeMap<String, Vec<String>> {
 
 fn registry() -> Result<Vec<Value>, String> {
     let out = crate::cargo()
-        .args(["run", "-q", "--release", "-p", "solidcraft-cli", "--", "commands"])
+        .args(["run", "-q", "--release", "-p", "solidcraft-cli", "--", "--language", "en", "commands"])
         .output()
         .map_err(|e| format!("solidcraft-cli: {e}"))?;
     if !out.status.success() {
@@ -196,20 +195,20 @@ fn add_missing(root: &Path, report: &mut Report) -> Result<usize, String> {
 
 fn print_report(report: &Report) {
     for (locale, missing) in &report.missing {
-        println!("i18n: {locale} is missing {} English message(s):", missing.len());
+        humanln!("i18n: {locale} is missing {} English message(s):", missing.len());
         for id in missing {
             println!("      {id}");
         }
     }
     if !report.untranslated.is_empty() {
-        println!("i18n: {} command label(s) have no English catalog entry, so they stay English in every locale:", report.untranslated.len());
+        humanln!("i18n: {} command label(s) have no English catalog entry, so they stay English in every locale:", report.untranslated.len());
         for (label, ids) in &report.untranslated {
             println!("      {label:<42} {}", ids.join(", "));
         }
-        println!("i18n: run `cargo xtask i18n --add-missing` to add them to en.json, then translate them.");
+        humanln!("i18n: run `cargo xtask i18n --add-missing` to add them to en.json, then translate them.");
     }
     if report.problems() == 0 {
-        println!("i18n: catalogs complete; every command label is translatable");
+        humanln!("i18n: catalogs complete; every command label is translatable");
     }
 }
 

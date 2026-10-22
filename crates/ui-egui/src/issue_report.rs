@@ -196,7 +196,7 @@ impl std::fmt::Write for Text {
 fn debug(value: &impl std::fmt::Debug, limit: usize) -> String {
     let mut text = Text { value: String::new(), limit };
     if write!(&mut text, "{value:#?}").is_err() {
-        text.value.push_str("\n[truncated]");
+        text.value.push_str(&format!("\n{}", crate::i18n::tr("issue.debug_truncated")));
     }
     text.value
 }
@@ -224,7 +224,7 @@ fn json_context(value: &impl serde::Serialize, limit: usize) -> String {
     let truncated = serde_json::to_writer_pretty(&mut bytes, value).is_err();
     let mut value = String::from_utf8_lossy(&bytes.value).into_owned();
     if truncated {
-        value.push_str("\n[truncated]");
+        value.push_str(&format!("\n{}", crate::i18n::tr("issue.debug_truncated")));
     }
     value
 }
@@ -290,25 +290,30 @@ fn reportable(feature: &solidcraft_engine::doc::Feature) -> bool {
 }
 
 fn feature_context(feature: &solidcraft_engine::doc::Feature) -> String {
-    format!("Feature {}: {}\n{}", feature.id, debug(&feature.name, 160), block(&json_context(&feature.kind, 2000)))
+    crate::i18n::format(
+        "issue.feature_context",
+        &[("id", &feature.id.to_string()), ("name", &debug(&feature.name, 160)), ("details", &block(&json_context(&feature.kind, 2000)))],
+    )
 }
 
 /// Read-only context excludes whole documents, sketch geometry and imported file contents.
 pub fn draft_for(app: &SolveApp, dialog: Option<&dialogs::Dialog>, error: Option<&str>) -> Draft {
+    let _language = crate::i18n::scope(&app.preferences.language);
     let mut context = String::new();
-    let label = dialog.map(dialogs::report_title).unwrap_or_else(|| "Modeling".into());
+    let source_label = dialog.map(dialogs::report_title).unwrap_or_else(|| "Modeling".into());
+    let label = app.tr_label(&source_label);
     if let Some(d) = dialog {
         match dialogs::apply_commands(app, d) {
             Ok(commands) => context.push_str(&block(&json_context(&commands, 10_000))),
             Err(e) => {
-                context.push_str(&format!("Could not build command parameters: {}\n", debug(&e, 1000)));
+                context.push_str(&format!("{}\n", crate::i18n::format("issue.parameter_context_error", &[("error", &debug(&e, 1000))])));
                 context.push_str(&block(&debug(&d.kind, 6000)));
                 context.push_str(&block(&debug(&d.inputs, 3000)));
                 context.push_str(&block(&debug(&d.extra, 1000)));
             }
         }
     }
-    context.push_str("\nSelected items (including occurrence paths):\n");
+    context.push_str(&format!("\n{}\n", crate::i18n::tr("issue.selected_context")));
     context.push_str(&block(&debug(&app.session.selection.iter().take(32).collect::<Vec<_>>(), 3000)));
     for item in app.session.selection.iter().take(8) {
         if let solidcraft_engine::Sel::Feature { id } = item
@@ -317,17 +322,17 @@ pub fn draft_for(app: &SolveApp, dialog: Option<&dialogs::Dialog>, error: Option
         {
             context.push_str(&feature_context(feature));
             if let Some(e) = app.session.model.result(*id).and_then(|r| r.error.as_deref()) {
-                context.push_str(&format!("Feature error: {}\n", debug(&e, 1000)));
+                context.push_str(&format!("{}\n", crate::i18n::format("issue.feature_error", &[("error", &debug(&e, 1000))])));
             }
         }
     }
     if dialog.is_none()
         && let Some(feature) = app.session.doc.features.iter().rev().find(|f| reportable(f))
     {
-        context.push_str("\nLatest modeling operation:\n");
+        context.push_str(&format!("\n{}\n", crate::i18n::tr("issue.latest_context")));
         context.push_str(&feature_context(feature));
         if let Some(e) = app.session.model.result(feature.id).and_then(|r| r.error.as_deref()) {
-            context.push_str(&format!("Feature error: {}\n", debug(&e, 1000)));
+            context.push_str(&format!("{}\n", crate::i18n::format("issue.feature_error", &[("error", &debug(&e, 1000))])));
         }
     }
     let actual = error.map(|e| debug(&e, 4000)).unwrap_or_else(|| "No command error was recorded.".into());
@@ -344,9 +349,12 @@ pub fn draft_for(app: &SolveApp, dialog: Option<&dialogs::Dialog>, error: Option
     );
     if body.len() > MAX_BODY {
         truncate(&mut body, MAX_BODY - 32);
-        body.push_str("\n[report context truncated]\n");
+        body.push_str(&format!("\n{}\n", crate::i18n::tr("issue.truncated")));
     }
-    let mut title = format!("{label}: {}", if error.is_some() { "operation failed" } else { "unexpected result" });
+    let mut title = crate::i18n::format(
+        "issue.draft_title",
+        &[("label", label), ("state", crate::i18n::tr(if error.is_some() { "issue.operation_failed" } else { "issue.unexpected_result" }))],
+    );
     truncate(&mut title, 160);
     Draft::new(title, body, source_signature(app, dialog))
 }
@@ -377,7 +385,11 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
         .flatten()
         .filter_map(|c| {
             let id = c.get("command")?.as_str()?;
-            Some(if c.get("ok").and_then(serde_json::Value::as_bool) == Some(false) { format!("{id} (failed)") } else { id.to_string() })
+            Some(if c.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+                crate::i18n::format("issue.failed_command", &[("id", id)])
+            } else {
+                id.to_string()
+            })
         })
         .collect();
     let app = report.get("app");
@@ -413,9 +425,9 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
     );
     if body.len() > MAX_BODY {
         truncate(&mut body, MAX_BODY - 32);
-        body.push_str("\n[report context truncated]\n");
+        body.push_str(&format!("\n{}\n", crate::i18n::tr("issue.truncated")));
     }
-    let mut title = format!("Crash: {}", s("message").lines().next().unwrap_or_default());
+    let mut title = crate::i18n::format("issue.crash_title", &[("message", s("message").lines().next().unwrap_or_default())]);
     truncate(&mut title, 160);
     let mut draft = Draft::new(title, body, 0);
     draft.description =
@@ -425,6 +437,7 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
 
 /// Open a reviewed draft for a crash report (no screenshot: the view shows nothing of it).
 pub fn begin_crash(app: &mut SolveApp, ctx: &egui::Context, report: &serde_json::Value) {
+    let _language = crate::i18n::scope(&app.preferences.language);
     if app.issue_report.draft.is_none() {
         app.issue_report.cad_focus = ctx.memory(|m| m.focused());
     }
@@ -466,15 +479,17 @@ pub fn begin(app: &mut SolveApp, ctx: &egui::Context, dialog: Option<&dialogs::D
     }
     cancel_capture(app);
     app.issue_report.draft = Some(draft_for(app, dialog, error));
+    let locale = crate::i18n::Locale::for_language(&app.preferences.language);
     if let Some(draft) = app.issue_report.draft.as_mut() {
         let rect = ctx.content_rect();
-        let _ = write!(
-            &mut draft.body,
-            "\nWindow: {:.0}×{:.0} logical points; {:.2} physical pixels/point\n",
-            rect.width(),
-            rect.height(),
-            ctx.pixels_per_point()
-        );
+        draft.body.push_str(&locale.format(
+            "issue.window",
+            &[
+                ("width", &format!("{:.0}", rect.width())),
+                ("height", &format!("{:.0}", rect.height())),
+                ("scale", &format!("{:.2}", ctx.pixels_per_point())),
+            ],
+        ));
         truncate(&mut draft.body, MAX_BODY);
     }
     capture(app, ctx, dialog);
@@ -546,7 +561,7 @@ pub(crate) fn tick(app: &mut SolveApp, ctx: &egui::Context) {
 }
 
 pub(crate) fn receive(app: &mut SolveApp, token: u64, image: Arc<ColorImage>) {
-    if !app.issue_report.pending.as_ref().is_some_and(|p| p.token == token) {
+    if app.issue_report.pending.as_ref().is_none_or(|p| p.token != token) {
         return;
     }
     let stale = app.issue_report.pending.as_ref().is_some_and(|p| p.signature != signature(app, app.dialog.as_ref()));

@@ -992,7 +992,8 @@ fn vertical_features(app: &mut SolveApp, ui: &mut egui::Ui, names: bool) {
         let result = app.session.model.result(*id);
         let elapsed = result.map(|r| r.ms);
         let error = result.and_then(|result| result.error.clone());
-        let warning = result.and_then(|result| result.warning.clone());
+        let warning =
+            result.and_then(|result| result.warning.as_deref().map(|warning| crate::warning_display::feature(warning, &result.boolean_diagnostics)));
         let rolled = index >= marker;
         let selected =
             app.session.selection.iter().any(|selection| matches!(selection, solidcraft_engine::Sel::Feature { id: selected } if selected == id));

@@ -23,7 +23,7 @@ assets/
   materials/library.rs               # physical defaults and colours
   shaders/viewport.wgsl               # original viewport shader
   fonts/{liberation-sans,biz-udp-gothic}/ # unmodified fonts and OFL licences
-  locales/{en,de,ja,ko}.json          # shared offline catalogs
+  locales/{en,de,fr,ja,ko,ru,uk,zh,pt-BR}.json # shared offline catalogs
   platforms/{macos,linux,windows}/    # bundle, freedesktop and WiX templates
   archive/icons/macos-v1/
     source/icon.vectorcraft          # earlier editable work, retained
@@ -31,6 +31,12 @@ assets/
 ```
 
 ## Editing and regeneration
+
+The Portuguese manual's window screenshot master is
+`documentation/screenshots/source/sample-plate-pt-BR.png`. Capture it from
+`solidcraft --sample --language pt-BR`, fit the view in a 1200×800 window and keep
+authored sample names intact. `cargo xtask book` copies this attributed master
+into the Portuguese manual; temporary PR review screenshots belong in `plan/`.
 
 [UI artwork](icons/ui/README.md) identifies the drawing masters and their consumers.
 Read the mandatory [UI style guide](icons/ui/STYLE_GUIDE.md) before editing an icon.

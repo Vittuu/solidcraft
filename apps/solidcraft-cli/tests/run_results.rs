@@ -344,6 +344,34 @@ fn eval_propagates_script_errors_before_writing_a_report() {
 }
 
 #[test]
+fn eval_rejects_unknown_options_and_missing_input_values_before_writing_a_report() {
+    let dir = Scratch::new();
+    let script = dir.script();
+    let report = dir.0.join("report.json");
+    for command in ["eval", "inspect"] {
+        for (options, message) in [(&["--frobnicate", "1"][..], "doesn't take --frobnicate"), (&["--in"][..], "--in needs a value")] {
+            for options_first in [false, true] {
+                std::fs::write(&report, b"previous report").unwrap();
+                let mut c = cli();
+                c.arg(command);
+                if options_first {
+                    c.args(options).arg("--json-out").arg(&report).arg(&script);
+                } else {
+                    c.arg(&script).args(options).arg("--json-out").arg(&report);
+                }
+                // A following option also proves that --in cannot consume a flag as its value.
+                let output = c.output().unwrap();
+                assert_eq!(output.status.code(), Some(1), "{command}, {options:?}");
+                let error = String::from_utf8_lossy(&output.stderr);
+                assert!(error.contains(message), "{command}: {error}");
+                assert!(output.stdout.is_empty());
+                assert_eq!(std::fs::read(&report).unwrap(), b"previous report");
+            }
+        }
+    }
+}
+
+#[test]
 fn results_propagate_output_errors() {
     let dir = Scratch::new();
     for flag in ["--save", "--out"] {

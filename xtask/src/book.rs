@@ -98,6 +98,14 @@ fn reference(cmds: &[Value], guides: &BTreeMap<String, String>) -> String {
          This catalog is generated from `solidcraft-cli commands` by `cargo xtask book` ({} commands).\n",
         cmds.len()
     );
+    let practical: Vec<_> = cmds.iter().filter(|c| guides.contains_key(command_text(c, "id"))).collect();
+    if !practical.is_empty() {
+        md.push_str("\n**Practical guides:**\n\n");
+        for command in practical {
+            md.push_str(&format!("- {}\n", command_link(command)));
+        }
+        md.push('\n');
+    }
     let mut sections: Vec<(String, Vec<&Value>)> = Vec::new();
     for tab in TABS {
         for c in cmds.iter().filter(|c| command_text(c, "tab") == *tab) {
@@ -179,17 +187,31 @@ fn load_guides(dir: &Path, cmds: &[Value]) -> Result<BTreeMap<String, String>, S
 fn command_links(text: &str, cmds: &[Value]) -> Result<String, String> {
     let mut output = String::new();
     let mut rest = text;
-    while let Some((before, link)) = rest.split_once("{{#command ") {
+    while let Some((before, link)) = rest.split_once("{{#command") {
         output.push_str(before);
+        // Other directive names (for example {{#commands ...}}) are not ours.
+        if link.starts_with(|c: char| !c.is_whitespace() && c != '}') {
+            output.push_str("{{#command");
+            rest = link;
+            continue;
+        }
         let (id, after) = link.split_once("}}").ok_or("unterminated {{#command ...}} link")?;
         let id = id.trim();
+        if id.is_empty() {
+            return Err("missing command ID in {{#command ...}} link".into());
+        }
         let command = cmds.iter().find(|c| command_text(c, "id") == id).ok_or_else(|| format!("unknown related command `{id}`"))?;
-        let label = command_text(command, "label").trim();
-        output.push_str(&format!("[{}](#{})", prose(if label.is_empty() { id } else { label }), command_anchor(id)));
+        output.push_str(&command_link(command));
         rest = after;
     }
     output.push_str(rest);
     Ok(output)
+}
+
+fn command_link(command: &Value) -> String {
+    let id = command_text(command, "id");
+    let label = command_text(command, "label").trim();
+    format!("[{}](#{})", prose(if label.is_empty() { id } else { label }), command_anchor(id))
 }
 
 /// Keep dotted command IDs readable, with an unambiguous escape for any other input byte.
@@ -385,8 +407,31 @@ mod tests {
         );
         assert!(command_links("{{#command missing.tool}}", &cmds).unwrap_err().contains("unknown related command"));
         assert!(command_links("{{#command sheet.hem", &cmds).unwrap_err().contains("unterminated"));
+        for unfinished in ["{{#command", "{{#command\t", "{{#command sheet.hem}"] {
+            assert!(command_links(unfinished, &cmds).unwrap_err().contains("unterminated"));
+        }
+        for empty in ["{{#command}}", "{{#command }}", "{{#command\n}}"] {
+            assert!(command_links(empty, &cmds).unwrap_err().contains("missing command ID"));
+        }
+        assert_eq!(command_links("{{#command\t sheet.hem\n}}", &cmds).unwrap(), "[Hem \\[updated\\]](#command-sheet.hem)");
+        let other = "{{#commands sheet.hem}} then {{#command sheet.hem}}";
+        assert_eq!(command_links(other, &cmds).unwrap(), "{{#commands sheet.hem}} then [Hem \\[updated\\]](#command-sheet.hem)");
         let ordinary = "[Demo](https://example.com/demo) and `distance: 20`";
         assert_eq!(command_links(ordinary, &cmds).unwrap(), ordinary);
+    }
+
+    #[test]
+    fn practical_index_lists_only_available_guides_with_current_safe_labels() {
+        let cmds = [
+            json!({"id":"solid.extrude","label":"Extrude [updated]"}),
+            json!({"id":"sheet.flange","label":"Flange"}),
+            json!({"id":"sheet.hem","label":" "}),
+        ];
+        let guides = BTreeMap::from([("sheet.hem".into(), "Hem guide".into()), ("solid.extrude".into(), "Extrude guide".into())]);
+        let md = super::reference(&cmds, &guides);
+        let index = md.split("**Practical guides:**\n\n").nth(1).unwrap().split("\n## ").next().unwrap();
+        assert_eq!(index, "- [Extrude \\[updated\\]](#command-solid.extrude)\n- [sheet.hem](#command-sheet.hem)\n\n");
+        assert!(!reference(&cmds).contains("**Practical guides:**"));
     }
 
     #[test]

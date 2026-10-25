@@ -3,6 +3,8 @@
 The command reference combines the live command registry with reviewed Markdown
 guides. A guide appears **inside its command's entry**, before the collapsed
 automation syntax. You can improve one entry without rewriting the whole manual.
+The reference's **Practical guides** list automatically links to every available
+guide; adding a guide does not require editing an index or Rust code.
 
 ## Add or improve an entry
 
@@ -30,8 +32,8 @@ For example, `../generated/sheet-metal.png` and `../guide/sheet-metal.md`.
 ## Related commands
 
 Write a command link as `{{#command sheet.hem}}`. The generator inserts its
-current name and links directly to that command. Unknown command IDs and an
-unfinished directive fail the book build, helping contributors catch stale links.
+current name and links directly to that command. Unknown or missing command IDs
+and unfinished directives fail the book build, helping contributors catch stale links.
 Normal Markdown links can point to guide pages or external resources.
 
 ## Community resources

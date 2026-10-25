@@ -951,9 +951,11 @@ mod tests {
         assert_eq!(tab_tooltip("a-long-name", Some("/srv/a-long-name.solidcraft"), true), "a-long-name\n/srv/a-long-name.solidcraft");
         assert_eq!(tab_tooltip("Untitled", None, false), "Not saved yet");
         assert_eq!(tab_tooltip("Untitled", None, true), "Untitled\nNot saved yet");
-        if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
-            let path = std::path::Path::new(&home).join("Designs").join("bracket.solidcraft");
-            assert_eq!(tab_tooltip("bracket", path.to_str(), false), "~/Designs/bracket.solidcraft");
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).filter(|h| !h.is_empty()) {
+            // The abbreviation keeps the relative path's native separators after `~/`.
+            let relative = std::path::Path::new("Designs").join("bracket.solidcraft");
+            let path = std::path::Path::new(&home).join(&relative);
+            assert_eq!(tab_tooltip("bracket", path.to_str(), false), format!("~/{}", relative.display()));
         }
     }
 

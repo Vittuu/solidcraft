@@ -57,7 +57,7 @@ pub(crate) fn quad(boundary: &[[f64; 2]]) -> Option<Quad> {
         }
     }
     let ext = [bbox[0].1 - bbox[0].0, bbox[1].1 - bbox[1].0];
-    if !(ext[0] > 0.0 && ext[1] > 0.0) || !(ext[0].is_finite() && ext[1].is_finite()) {
+    if !(ext[0] > 0.0 && ext[1] > 0.0 && ext[0].is_finite() && ext[1].is_finite()) {
         return None;
     }
     let eps = [ext[0] * 1e-7, ext[1] * 1e-7];
@@ -318,5 +318,16 @@ mod tests {
         assert!(quad(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]).is_none());
         let pentagon = [[0.0, 0.0], [1.0, 0.0], [1.0, 0.5], [0.5, 1.0], [0.0, 1.0]];
         assert!(quad(&pentagon).is_none());
+        // Both parameter extents must be positive and finite, even when the corners
+        // themselves are finite but their separation overflows.
+        for (lo, hi) in [(0.0, 0.0), (0.0, f64::INFINITY), (f64::NEG_INFINITY, 1.0), (-f64::MAX, f64::MAX)] {
+            for axis in 0..2 {
+                let mut boundary = [[lo, 0.0], [hi, 0.0], [hi, 1.0], [lo, 1.0]];
+                if axis == 1 {
+                    boundary.iter_mut().for_each(|p| p.swap(0, 1));
+                }
+                assert!(quad(&boundary).is_none(), "axis={axis}, bounds={lo:?}..{hi:?}");
+            }
+        }
     }
 }

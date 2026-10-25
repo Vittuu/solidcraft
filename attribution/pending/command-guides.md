@@ -1,0 +1,2 @@
+| docs/book/src/generated/hem.png | SolidCraft contributors | rendered by `cargo xtask book` (`solidcraft-cli snapshot docs/book/scripts/hem.json`; gitignored), original sheet metal demonstration | MIT OR Apache-2.0 |
+| docs/book/scripts/hem.json | SolidCraft contributors | original parametric recipe for an 80 × 50 mm sheet with an 8 mm returned edge, authored for the command guide | MIT OR Apache-2.0 |

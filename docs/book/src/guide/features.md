@@ -1,5 +1,8 @@
 # Solid features
 
+For prerequisites, a readable options table and a first example, open the
+[practical Extrude guide](../reference/commands.md#command-solid.extrude).
+
 Features live on the **timeline** and rebuild incrementally from the first one that changed.
 Each one can be edited (double-click), suppressed, renamed, reordered (if nothing it depends on
 moves after it), rolled back to, and deleted. Deleting asks first when other features depend on

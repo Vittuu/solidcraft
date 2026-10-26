@@ -1,0 +1,8 @@
+{
+  "en": {
+    "nav.free_orbit.snap_help": "Mouse and 3D mouse rotate through both poles and preserve roll. Hold Shift during an orbit drag to snap the view direction and roll."
+  },
+  "pt-BR": {
+    "nav.free_orbit.snap_help": "Mouse e mouse 3D giram através dos dois polos e preservam a rotação da imagem. Mantenha Shift pressionado durante uma órbita por arraste para alinhar a direção da vista e a rotação da imagem."
+  }
+}

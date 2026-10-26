@@ -573,7 +573,7 @@ fn serve_with(
             }
         };
         // Subscribed once the window named the design (not when it refused or timed out).
-        let sent = match joining.and_then(|counted| design_of(&reply).map(|seen| (counted, seen))) {
+        let sent = match joining.zip(design_of(&reply)) {
             Some((counted, seen)) => match Subscription::start(design, counted, &out, seen, &reply) {
                 Some((subscription, sent)) => {
                     events = Some(subscription);

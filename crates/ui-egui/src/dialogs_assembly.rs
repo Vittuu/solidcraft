@@ -60,7 +60,7 @@ const TYPE_LABELS: [&str; 13] = [
     "Line on plane",
 ];
 /// What a joint origin input accepts (snaps on faces, edges and vertices).
-pub const SNAPS: u16 = FACES | EDGES | VERTICES;
+pub const SNAPS: crate::selection::Accept = FACES | EDGES | VERTICES;
 /// Commands whose effect is where occurrences sit (previewed on the placed model).
 const MOVES: [&str; 12] = [
     "joint.create",

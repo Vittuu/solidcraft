@@ -1938,6 +1938,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
     let reach = crate::pick_index::reach(proj, pos, 8.0);
     let mut bestv = Near::new(all);
     let mut beste = Near::new(all);
+    let mut nearest_edge_is_outline = false;
     for (i, b) in st.bodies.iter().enumerate() {
         if !app.session.body_visible(&b.name) {
             continue;
@@ -1980,6 +1981,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
             // the middle, which can lie deeper than the face the cursor is on.
             if dd < 6.0 && beste.wants(dd) && visible(ray_segment_closest(o, d, p0, p1)) {
                 beste.offer(dd, Hit::Edge { body: b.name.clone(), index: ei, mid: at(polyline_mid(e)) });
+                nearest_edge_is_outline = m.display_only_edges;
             }
         }
     }
@@ -1997,8 +1999,15 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
     // pointer over anything (a line's middle lies on the line), further out unless an edge or a
     // sketch curve under the pointer is nearer (a small hole's rim stays pickable).
     let edge_near = beste.v.iter().map(|x| x.0).fold(curve_near, f32::min);
-    let woken: Vec<Hit> =
-        crate::snap_wake::hits(app, proj, pos).into_iter().filter(|(dd, _)| *dd < crate::snap_wake::ON || *dd < edge_near).map(|x| x.1).collect();
+    // An imported outline's midpoint must not steal a click intended to measure its length.
+    // Keep its hover points available away from the outline, and as explicit Select Other
+    // choices. A half-pixel tie goes to the outline rather than projection round-off.
+    let preserve_outline = !all && nearest_edge_is_outline && beste.v.first().is_some_and(|(dd, _)| *dd < curve_near);
+    let woken: Vec<Hit> = crate::snap_wake::hits(app, proj, pos)
+        .into_iter()
+        .filter(|(dd, _)| if preserve_outline { *dd + 0.5 < edge_near } else { *dd < crate::snap_wake::ON || *dd < edge_near })
+        .map(|x| x.1)
+        .collect();
     hits.splice(0..0, woken);
     hits.extend(bestv.hits());
     hits.extend(beste.hits());

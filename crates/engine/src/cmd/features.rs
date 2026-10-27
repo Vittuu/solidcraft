@@ -517,6 +517,12 @@ pub(crate) fn profiles(p: &Value, cmd: &str) -> Result<ProfileSel> {
             if fields.get("type").and_then(Value::as_str) == Some("whole_boundaries") {
                 return solidcraft_doc::whole_profile_selection_from_value(v).map_err(|error| bad(cmd, error.to_string()));
             }
+            if !fields.contains_key("offset_boundaries") && fields.get("type").and_then(Value::as_str) != Some("offset_boundaries") {
+                return Err(bad(
+                    cmd,
+                    r#"`profiles` must be `"all"`, an index such as `0`, indices such as `[0]`, point picks such as `[{"point": [0, 0]}]` or curve-id picks such as `[{"curves": ["c1"]}]`"#,
+                ));
+            }
             let associations = fields
                 .get("offset_boundaries")
                 .or_else(|| (fields.get("type").and_then(Value::as_str) == Some("offset_boundaries")).then(|| fields.get("associations")).flatten())

@@ -129,6 +129,63 @@ fn profiles_match_features_profiles() {
 }
 
 #[test]
+fn unsupported_profile_objects_offer_valid_public_examples() {
+    let contract = TypedContract::<ExtrudeParams>::new();
+    for profiles in [
+        json!({"type": "curves", "loops": [["c1"], ["c2"]]}),
+        json!({"type": "curves", "loops": [["c1"]]}),
+        json!({"type": "index", "index": 0}),
+        json!({"type": "indices", "indices": [0]}),
+        json!({"curves": ["c1"]}),
+        json!({}),
+    ] {
+        let issues = contract.check(&json!({"distance": 5, "profiles": profiles}));
+        assert_eq!(issues.len(), 1, "{profiles}: {issues:?}");
+        let issue = issues.first().unwrap();
+        assert_eq!(issue.path, "profiles");
+        assert!(!issue.message.contains("offset_boundaries"), "{profiles}: {}", issue.message);
+        // The diagnostic is useful to scripts only if its public examples actually parse.
+        let examples: Vec<Value> = issue.message.split('`').skip(1).step_by(2).filter_map(|text| serde_json::from_str(text).ok()).collect();
+        assert_eq!(examples.len(), 5, "{}", issue.message);
+        for example in examples {
+            let issues = contract.check(&json!({"distance": 5, "profiles": example}));
+            assert!(issues.is_empty(), "example {example}: {issues:?}");
+        }
+    }
+    for profiles in [
+        json!({"offset_boundaries": ["a"]}),
+        json!({"type": "offset_boundaries", "associations": ["a"]}),
+        json!({"type": "curves", "offset_boundaries": ["a"]}),
+    ] {
+        assert!(contract.check(&json!({"distance": 5, "profiles": profiles})).is_empty());
+    }
+}
+
+#[test]
+fn unsupported_profile_objects_keep_the_design_in_every_check_mode() {
+    let mut session = Session::default();
+    session.execute("sketch.create", &json!({"plane": "xy", "name": "Ring"})).unwrap();
+    session.execute("sketch.circle.center", &json!({"center": [0, 0], "radius": 10})).unwrap();
+    session.execute("sketch.circle.center", &json!({"center": [0, 0], "radius": 6})).unwrap();
+    session.execute("sketch.finish", &json!({})).unwrap();
+    let design = session.doc.to_json();
+    let undo = session.undo.len();
+    for mode in [ParamCheck::Off, ParamCheck::Warn, ParamCheck::Strict] {
+        session.param_check = mode;
+        for profiles in [json!({"type": "curves", "loops": [["c1"], ["c2"]]}), json!({"type": "index", "index": 0})] {
+            let error = session
+                .execute("solid.extrude", &json!({"sketch": "Ring", "distance": 3, "operation": "new", "profiles": profiles}))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("\"all\"") && error.contains("curves"), "{mode:?}: {error}");
+            assert!(!error.contains("offset_boundaries"), "{mode:?}: {error}");
+            assert_eq!(session.doc.to_json(), design);
+            assert_eq!(session.undo.len(), undo);
+        }
+    }
+}
+
+#[test]
 fn unknown_keys_get_suggestions() {
     let c = box_contract();
     let issues = c.check(&json!({"length": 5, "width": 5, "height": 5, "operaton": "cut", "colour": "red"}));

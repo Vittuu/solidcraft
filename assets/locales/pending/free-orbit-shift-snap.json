@@ -2,7 +2,19 @@
   "en": {
     "nav.free_orbit.snap_help": "Mouse and 3D mouse rotate through both poles and preserve roll. Hold Shift during an orbit drag to snap the view direction and roll."
   },
+  "de": {
+    "nav.free_orbit.snap_help": "Maus und 3D-Maus drehen über beide Pole hinweg und behalten die Rollausrichtung bei. Halten Sie beim Ziehen zum Drehen die Umschalttaste gedrückt, um Blickrichtung und Rollausrichtung einrasten zu lassen."
+  },
   "pt-BR": {
     "nav.free_orbit.snap_help": "Mouse e mouse 3D giram através dos dois polos e preservam a rotação da imagem. Mantenha Shift pressionado durante uma órbita por arraste para alinhar a direção da vista e a rotação da imagem."
+  },
+  "ja": {
+    "nav.free_orbit.snap_help": "マウスと3Dマウスで両極を越えて回転でき、ロールも保持されます。オービットのドラッグ中にShiftを押すと、視線方向とロールがスナップします。"
+  },
+  "ko": {
+    "nav.free_orbit.snap_help": "마우스와 3D 마우스로 양쪽 극점을 지나 회전할 수 있으며 롤 각도가 유지됩니다. 궤도 회전 드래그 중 Shift를 누르면 보기 방향과 롤 각도가 스냅됩니다."
+  },
+  "zh": {
+    "nav.free_orbit.snap_help": "鼠标和3D鼠标可越过两极旋转，并保留画面旋转角度。在拖动环绕时按住Shift，可吸附视图方向和画面旋转角度。"
   }
 }

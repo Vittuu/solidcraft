@@ -1358,7 +1358,8 @@ mod tests {
                     assert!((before.back().dot(h.app.cam.back()) - (seconds * 2.0).cos()).abs() < 1e-9);
                     let device_cam = h.app.cam;
                     h.app.cam = mouse;
-                    orbit_drag(&mut h.app, rect, rotation[1] * seconds * 250.0, rotation[0] * seconds * 250.0, None, true, false);
+                    // Compare continuous rotation; Shift snapping is exercised separately.
+                    orbit_drag(&mut h.app, rect, rotation[1] * seconds * 250.0, rotation[0] * seconds * 250.0, None, false, false);
                     mouse = h.app.cam;
                     assert!(mouse.back().dist(device_cam.back()) < 1e-9 && mouse.basis().0.dist(device_cam.basis().0) < 1e-9);
                     h.app.cam = device_cam;
